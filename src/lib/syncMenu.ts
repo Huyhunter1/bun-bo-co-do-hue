@@ -1,31 +1,19 @@
 // src/lib/syncMenu.ts - Sync menu data from DB to JSON file
-import { query } from "./db";
+import { getDb } from "./mongodb";
 import fs from "fs/promises";
 import path from "path";
 
 export async function syncMenuToJson() {
   try {
     console.log("🔄 Syncing menu from database to menu.json...");
+    const db = await getDb();
 
     // Fetch all menu items from database
-    const items = await query(`
-      SELECT 
-        id,
-        name,
-        slug,
-        description,
-        price,
-        category,
-        image_url as image,
-        is_featured as popular,
-        is_spicy,
-        preparation_time,
-        is_available as available,
-        sold_count,
-        rating
-      FROM menu_items 
-      ORDER BY category, name
-    `);
+    const items = await db
+      .collection("menu_items")
+      .find({}, { projection: { _id: 0 } })
+      .sort({ category: 1, name: 1 })
+      .toArray();
 
     // Transform to match JSON structure
     const menuData = Array.isArray(items)
@@ -35,10 +23,10 @@ export async function syncMenuToJson() {
           description: item.description,
           price: parseFloat(item.price),
           category: item.category,
-          image: item.image || `/images/${item.slug}.jpg`,
-          popular: Boolean(item.popular),
+          image: item.image_url || `/images/${item.slug}.jpg`,
+          popular: Boolean(item.is_featured),
           spicyLevel: item.is_spicy ? 5 : 0,
-          available: Boolean(item.available),
+          available: Boolean(item.is_available),
         }))
       : [];
 

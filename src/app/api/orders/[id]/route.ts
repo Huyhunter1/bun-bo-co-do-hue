@@ -1,16 +1,19 @@
 // src/app/api/orders/[id]/route.ts - API chi tiết đơn hàng
 import { NextRequest, NextResponse } from "next/server";
-import { query, queryOne } from "@/lib/db";
+import { getDb, toNumberId } from "@/lib/mongodb";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const id = params.id;
+    const id = toNumberId(params.id);
+    const db = await getDb();
 
     // Lấy thông tin đơn hàng
-    const order = await queryOne("SELECT * FROM orders WHERE id = ?", [id]);
+    const order = await db
+      .collection("orders")
+      .findOne({ id }, { projection: { _id: 0 } });
 
     if (!order) {
       return NextResponse.json(
@@ -20,9 +23,10 @@ export async function GET(
     }
 
     // Lấy chi tiết món
-    const items = await query("SELECT * FROM order_items WHERE order_id = ?", [
-      id,
-    ]);
+    const items = await db
+      .collection("order_items")
+      .find({ order_id: id }, { projection: { _id: 0 } })
+      .toArray();
 
     return NextResponse.json({
       success: true,
@@ -50,27 +54,20 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
-    const id = params.id;
+    const id = toNumberId(params.id);
+    const db = await getDb();
     const body = await request.json();
     const { order_status, payment_status } = body;
 
-    let sql = "UPDATE orders SET updated_at = CURRENT_TIMESTAMP";
-    const updateParams: any[] = [];
-
+    const updates: Record<string, any> = { updated_at: new Date() };
     if (order_status) {
-      sql += ", order_status = ?";
-      updateParams.push(order_status);
+      updates.order_status = order_status;
     }
-
     if (payment_status) {
-      sql += ", payment_status = ?";
-      updateParams.push(payment_status);
+      updates.payment_status = payment_status;
     }
 
-    sql += " WHERE id = ?";
-    updateParams.push(id);
-
-    await query(sql, updateParams);
+    await db.collection("orders").updateOne({ id }, { $set: updates });
 
     return NextResponse.json({
       success: true,
@@ -102,13 +99,14 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const id = params.id;
+    const id = toNumberId(params.id);
+    const db = await getDb();
 
-    // Xóa order_items trước (cascade sẽ tự động xóa nhưng để chắc chắn)
-    await query("DELETE FROM order_items WHERE order_id = ?", [id]);
+    // Xóa order_items trước
+    await db.collection("order_items").deleteMany({ order_id: id });
 
     // Xóa order
-    const result = await query("DELETE FROM orders WHERE id = ?", [id]);
+    await db.collection("orders").deleteOne({ id });
 
     return NextResponse.json({
       success: true,

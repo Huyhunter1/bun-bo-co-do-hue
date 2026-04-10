@@ -1,89 +1,143 @@
 // src/app/api/customers/route.ts - API quản lý khách hàng
 import { NextRequest, NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { getDb } from "@/lib/mongodb";
 
 export async function GET(request: NextRequest) {
   try {
+    const db = await getDb();
     const searchParams = request.nextUrl.searchParams;
     const search = searchParams.get("search");
     const type = searchParams.get("type") || "all"; // all, new, returning, vip
 
-    // Query to aggregate customer data from orders and reservations
-    let sql = `
-      SELECT 
-        customer_phone as phone,
-        MAX(customer_name) as name,
-        MAX(customer_email) as email,
-        MAX(delivery_address) as address,
-        COUNT(DISTINCT CASE WHEN order_id IS NOT NULL THEN order_id END) as total_orders,
-        COUNT(DISTINCT CASE WHEN reservation_id IS NOT NULL THEN reservation_id END) as total_reservations,
-        COALESCE(SUM(total_amount), 0) as total_spent,
-        MIN(created_at) as first_visit,
-        MAX(created_at) as last_visit
-      FROM (
-        SELECT 
-          id as order_id, 
-          NULL as reservation_id,
-          customer_name, 
-          customer_phone, 
-          customer_email, 
-          delivery_address, 
-          total_amount, 
-          created_at
-        FROM orders
-        UNION ALL
-        SELECT 
-          NULL as order_id,
-          id as reservation_id,
-          customer_name, 
-          customer_phone, 
-          customer_email,
-          NULL as delivery_address,
-          0 as total_amount,
-          created_at
-        FROM reservations
-      ) as combined
-      WHERE 1=1
-    `;
+    const [orders, reservations] = await Promise.all([
+      db
+        .collection("orders")
+        .find(
+          {},
+          {
+            projection: {
+              _id: 0,
+              id: 1,
+              customer_name: 1,
+              customer_phone: 1,
+              customer_email: 1,
+              delivery_address: 1,
+              total_amount: 1,
+              created_at: 1,
+            },
+          }
+        )
+        .toArray(),
+      db
+        .collection("reservations")
+        .find(
+          {},
+          {
+            projection: {
+              _id: 0,
+              id: 1,
+              customer_name: 1,
+              customer_phone: 1,
+              customer_email: 1,
+              created_at: 1,
+            },
+          }
+        )
+        .toArray(),
+    ]);
 
-    const params: any[] = [];
+    const map = new Map<string, any>();
+
+    for (const order of orders) {
+      const phone = order.customer_phone;
+      if (!phone) continue;
+      const current = map.get(phone) || {
+        phone,
+        name: order.customer_name || "",
+        email: order.customer_email || "",
+        address: order.delivery_address || "",
+        total_orders: 0,
+        total_reservations: 0,
+        total_spent: 0,
+        first_visit: order.created_at,
+        last_visit: order.created_at,
+      };
+
+      current.name = current.name || order.customer_name || "";
+      current.email = current.email || order.customer_email || "";
+      current.address = current.address || order.delivery_address || "";
+      current.total_orders += 1;
+      current.total_spent += Number(order.total_amount || 0);
+      current.first_visit =
+        new Date(current.first_visit) < new Date(order.created_at)
+          ? current.first_visit
+          : order.created_at;
+      current.last_visit =
+        new Date(current.last_visit) > new Date(order.created_at)
+          ? current.last_visit
+          : order.created_at;
+      map.set(phone, current);
+    }
+
+    for (const reservation of reservations) {
+      const phone = reservation.customer_phone;
+      if (!phone) continue;
+      const current = map.get(phone) || {
+        phone,
+        name: reservation.customer_name || "",
+        email: reservation.customer_email || "",
+        address: "",
+        total_orders: 0,
+        total_reservations: 0,
+        total_spent: 0,
+        first_visit: reservation.created_at,
+        last_visit: reservation.created_at,
+      };
+
+      current.name = current.name || reservation.customer_name || "";
+      current.email = current.email || reservation.customer_email || "";
+      current.total_reservations += 1;
+      current.first_visit =
+        new Date(current.first_visit) < new Date(reservation.created_at)
+          ? current.first_visit
+          : reservation.created_at;
+      current.last_visit =
+        new Date(current.last_visit) > new Date(reservation.created_at)
+          ? current.last_visit
+          : reservation.created_at;
+      map.set(phone, current);
+    }
+
+    let customers = Array.from(map.values());
+    const allCustomers = customers;
 
     if (search) {
-      sql += ` AND (customer_name LIKE ? OR customer_phone LIKE ? OR customer_email LIKE ?)`;
-      const searchTerm = `%${search}%`;
-      params.push(searchTerm, searchTerm, searchTerm);
+      const needle = search.toLowerCase();
+      customers = customers.filter(
+        (c) =>
+          String(c.name || "")?.toLowerCase().includes(needle) ||
+          String(c.phone || "")?.toLowerCase().includes(needle) ||
+          String(c.email || "")?.toLowerCase().includes(needle)
+      );
     }
 
-    sql += ` GROUP BY customer_phone`;
-
-    // Apply type filter in HAVING clause
     if (type === "new") {
-      sql += ` HAVING total_orders <= 1`;
+      customers = customers.filter((c) => c.total_orders <= 1);
     } else if (type === "returning") {
-      sql += ` HAVING total_orders >= 2 AND total_spent < 1000000`;
+      customers = customers.filter(
+        (c) => c.total_orders >= 2 && Number(c.total_spent) < 1000000
+      );
     } else if (type === "vip") {
-      sql += ` HAVING total_spent >= 1000000 OR total_orders >= 5`;
+      customers = customers.filter(
+        (c) => Number(c.total_spent) >= 1000000 || c.total_orders >= 5
+      );
     }
 
-    sql += ` ORDER BY total_spent DESC, last_visit DESC`;
-
-    const customers = await query(sql, params);
-
-    // Calculate statistics
-    const allCustomersQuery = `
-      SELECT 
-        customer_phone,
-        COUNT(DISTINCT CASE WHEN order_id IS NOT NULL THEN order_id END) as total_orders,
-        COALESCE(SUM(total_amount), 0) as total_spent
-      FROM (
-        SELECT id as order_id, NULL as reservation_id, customer_phone, total_amount FROM orders
-        UNION ALL
-        SELECT NULL as order_id, id as reservation_id, customer_phone, 0 as total_amount FROM reservations
-      ) as combined
-      GROUP BY customer_phone
-    `;
-
-    const allCustomers: any = await query(allCustomersQuery);
+    customers.sort(
+      (a, b) =>
+        Number(b.total_spent || 0) - Number(a.total_spent || 0) ||
+        new Date(b.last_visit).getTime() - new Date(a.last_visit).getTime()
+    );
 
     const stats = {
       total: allCustomers.length,

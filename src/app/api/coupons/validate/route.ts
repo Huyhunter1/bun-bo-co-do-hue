@@ -1,9 +1,10 @@
 // src/app/api/coupons/validate/route.ts - API validate coupon
 import { NextRequest, NextResponse } from "next/server";
-import { query, queryOne } from "@/lib/db";
+import { getDb } from "@/lib/mongodb";
 
 export async function POST(request: NextRequest) {
   try {
+    const db = await getDb();
     const body = await request.json();
     const { code, orderAmount } = body;
 
@@ -15,10 +16,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Tìm coupon trong database
-    const coupon = await queryOne(
-      `SELECT * FROM coupons WHERE code = ? AND is_active = TRUE`,
-      [code.toUpperCase()]
-    );
+    const coupon = await db.collection("coupons").findOne<any>({
+      code: code.toUpperCase(),
+      is_active: true,
+    });
 
     if (!coupon) {
       return NextResponse.json({

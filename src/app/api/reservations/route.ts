@@ -1,31 +1,29 @@
 // src/app/api/reservations/route.ts - API đặt bàn
 import { NextRequest, NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { getDb, getNextSequence } from "@/lib/mongodb";
 import { sendReservationConfirmationEmail } from "@/lib/email";
 
 // Lấy danh sách đặt bàn
 export async function GET(request: NextRequest) {
   try {
+    const db = await getDb();
     const searchParams = request.nextUrl.searchParams;
     const status = searchParams.get("status");
     const date = searchParams.get("date");
 
-    let sql = "SELECT * FROM reservations WHERE 1=1";
-    const params: any[] = [];
-
+    const filter: Record<string, any> = {};
     if (status) {
-      sql += " AND status = ?";
-      params.push(status);
+      filter.status = status;
     }
-
     if (date) {
-      sql += " AND reservation_date = ?";
-      params.push(date);
+      filter.reservation_date = date;
     }
 
-    sql += " ORDER BY reservation_date DESC, reservation_time DESC";
-
-    const reservations = await query(sql, params);
+    const reservations = await db
+      .collection("reservations")
+      .find(filter, { projection: { _id: 0 } })
+      .sort({ reservation_date: -1, reservation_time: -1 })
+      .toArray();
 
     return NextResponse.json({
       success: true,
@@ -47,6 +45,7 @@ export async function GET(request: NextRequest) {
 // Tạo đặt bàn mới
 export async function POST(request: NextRequest) {
   try {
+    const db = await getDb();
     const body = await request.json();
     const {
       customer_name,
@@ -63,23 +62,22 @@ export async function POST(request: NextRequest) {
       Math.random() * 1000
     )}`;
 
-    const sql = `
-      INSERT INTO reservations (
-        reservation_number, customer_name, customer_phone, customer_email,
-        reservation_date, reservation_time, number_of_guests, special_requests
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-
-    const result = await query(sql, [
-      reservationNumber,
+    const reservationId = await getNextSequence("reservations");
+    await db.collection("reservations").insertOne({
+      id: reservationId,
+      reservation_number: reservationNumber,
       customer_name,
       customer_phone,
-      customer_email || null,
+      customer_email: customer_email || null,
       reservation_date,
       reservation_time,
       number_of_guests,
-      special_requests || null,
-    ]);
+      special_requests: special_requests || null,
+      status: "pending",
+      table_number: null,
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
 
     // Gửi email xác nhận nếu có email
     if (customer_email) {
@@ -95,16 +93,15 @@ export async function POST(request: NextRequest) {
         );
 
         // Lưu log email
-        await query(
-          `INSERT INTO email_logs (reservation_id, email, subject, status) 
-           VALUES ((SELECT id FROM reservations WHERE reservation_number = ?), ?, ?, ?)`,
-          [
-            reservationNumber,
-            customer_email,
-            `Xác nhận đặt bàn #${reservationNumber} - Bún Bò Huế Cố Đô`,
-            "sent",
-          ]
-        );
+        const logId = await getNextSequence("email_logs");
+        await db.collection("email_logs").insertOne({
+          id: logId,
+          reservation_id: reservationId,
+          email: customer_email,
+          subject: `Xác nhận đặt bàn #${reservationNumber} - Bún Bò Huế Cố Đô`,
+          status: "sent",
+          sent_at: new Date(),
+        });
       } catch (emailError) {
         console.error("Error sending reservation email:", emailError);
         // Không throw error, vẫn trả về success cho việc đặt bàn

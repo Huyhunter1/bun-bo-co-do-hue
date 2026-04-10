@@ -1,27 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { query } from "@/lib/db";
-import { sendOrderConfirmationEmail, sendOrderStatusEmail } from "@/lib/email";
+import { getDb, getNextSequence, toNumberId } from "@/lib/mongodb";
+import { sendOrderConfirmationEmail } from "@/lib/email";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const orderId = params.id;
+    const orderId = toNumberId(params.id);
+    const db = await getDb();
 
     // Lấy thông tin đơn hàng
-    const orderResult: any = await query(`SELECT * FROM orders WHERE id = ?`, [
-      orderId,
-    ]);
+    const order: any = await db
+      .collection("orders")
+      .findOne({ id: orderId }, { projection: { _id: 0 } });
 
-    if (!orderResult || orderResult.length === 0) {
+    if (!order) {
       return NextResponse.json(
         { success: false, error: "Không tìm thấy đơn hàng" },
         { status: 404 }
       );
     }
-
-    const order = orderResult[0];
 
     // Kiểm tra email - ưu tiên customer_email trong bảng orders
     const customerEmail = order.customer_email;
@@ -34,10 +33,10 @@ export async function POST(
     }
 
     // Lấy chi tiết món ăn trong đơn
-    const orderItems: any = await query(
-      `SELECT * FROM order_items WHERE order_id = ?`,
-      [orderId]
-    );
+    const orderItems: any = await db
+      .collection("order_items")
+      .find({ order_id: orderId }, { projection: { _id: 0 } })
+      .toArray();
 
     // Format order items cho email
     const formattedItems = orderItems.map((item: any) => ({
@@ -60,25 +59,26 @@ export async function POST(
     const logStatus = result.success ? "sent" : "failed";
 
     try {
-      await query(
-        `INSERT INTO email_logs (
-          order_id, email, subject, status, error_message, message_id, sent_at
-        ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-        [
-          orderId,
-          customerEmail,
-          `Xác nhận đơn hàng #${order.order_number}`,
-          logStatus,
-          result.success ? null : result.message,
-          result.messageId || null,
-        ]
-      );
+      const logId = await getNextSequence("email_logs");
+      await db.collection("email_logs").insertOne({
+        id: logId,
+        order_id: orderId,
+        email: customerEmail,
+        subject: `Xác nhận đơn hàng #${order.order_number}`,
+        status: logStatus,
+        error_message: result.success ? null : result.message,
+        message_id: result.messageId || null,
+        sent_at: new Date(),
+      });
 
       // Cập nhật trạng thái email_sent trong orders
       if (result.success) {
-        await query(
-          `UPDATE orders SET email_sent = TRUE, email_sent_at = CURRENT_TIMESTAMP, email_count = email_count + 1 WHERE id = ?`,
-          [orderId]
+        await db.collection("orders").updateOne(
+          { id: orderId },
+          {
+            $set: { email_sent: true, email_sent_at: new Date() },
+            $inc: { email_count: 1 },
+          }
         );
       }
     } catch (logError) {

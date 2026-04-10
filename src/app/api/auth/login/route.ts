@@ -1,6 +1,6 @@
 // src/app/api/auth/login/route.ts - API đăng nhập
 import { NextRequest, NextResponse } from "next/server";
-import { queryOne } from "@/lib/db";
+import { getDb } from "@/lib/mongodb";
 import bcrypt from "bcryptjs";
 import jwt, { type SignOptions } from "jsonwebtoken";
 
@@ -17,10 +17,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Tìm user
-    const user = await queryOne<any>(
-      "SELECT * FROM users WHERE username = ? AND status = ?",
-      [username, "active"]
-    );
+    const db = await getDb();
+    const user = await db
+      .collection("users")
+      .findOne<any>({ username, status: "active" });
 
     if (!user) {
       return NextResponse.json(
@@ -40,7 +40,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Tạo JWT token
-    const jwtSecret = process.env.JWT_SECRET || "default-secret-key";
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      throw new Error("JWT_SECRET is not configured");
+    }
     const jwtExpires = process.env.JWT_EXPIRES_IN || "7d";
 
     const token = jwt.sign(

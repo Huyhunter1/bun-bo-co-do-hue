@@ -1,50 +1,86 @@
 import { NextRequest, NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { getDb } from "@/lib/mongodb";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { phone: string } }
 ) {
   try {
+    const db = await getDb();
     const phone = params.phone;
 
     // Get customer orders
-    const orders = await query(
-      `SELECT 
-        id, order_number, total_amount, order_status, 
-        created_at, delivery_address
-      FROM orders 
-      WHERE customer_phone = ? 
-      ORDER BY created_at DESC`,
-      [phone]
-    );
+    const orders = await db
+      .collection("orders")
+      .find(
+        { customer_phone: phone },
+        {
+          projection: {
+            _id: 0,
+            id: 1,
+            order_number: 1,
+            total_amount: 1,
+            order_status: 1,
+            created_at: 1,
+            delivery_address: 1,
+          },
+        }
+      )
+      .sort({ created_at: -1 })
+      .toArray();
 
     // Get customer reservations
-    const reservations = await query(
-      `SELECT 
-        id, reservation_number, reservation_date, reservation_time,
-        number_of_guests, status, special_requests, created_at
-      FROM reservations 
-      WHERE customer_phone = ? 
-      ORDER BY created_at DESC`,
-      [phone]
-    );
+    const reservations = await db
+      .collection("reservations")
+      .find(
+        { customer_phone: phone },
+        {
+          projection: {
+            _id: 0,
+            id: 1,
+            reservation_number: 1,
+            reservation_date: 1,
+            reservation_time: 1,
+            number_of_guests: 1,
+            status: 1,
+            special_requests: 1,
+            created_at: 1,
+          },
+        }
+      )
+      .sort({ created_at: -1 })
+      .toArray();
 
     // Get favorite items (most ordered)
-    const favoriteItems = await query(
-      `SELECT 
-        oi.item_name,
-        COUNT(*) as order_count,
-        SUM(oi.quantity) as total_quantity,
-        SUM(oi.item_price * oi.quantity) as total_spent
-      FROM order_items oi
-      JOIN orders o ON oi.order_id = o.id
-      WHERE o.customer_phone = ?
-      GROUP BY oi.item_name
-      ORDER BY order_count DESC, total_quantity DESC
-      LIMIT 5`,
-      [phone]
-    );
+    const orderIds = orders.map((o: any) => o.id);
+    const favoriteItemsRaw =
+      orderIds.length > 0
+        ? await db
+            .collection("order_items")
+            .aggregate([
+              { $match: { order_id: { $in: orderIds } } },
+              {
+                $group: {
+                  _id: "$item_name",
+                  order_count: { $sum: 1 },
+                  total_quantity: { $sum: "$quantity" },
+                  total_spent: {
+                    $sum: { $multiply: ["$item_price", "$quantity"] },
+                  },
+                },
+              },
+              { $sort: { order_count: -1, total_quantity: -1 } },
+              { $limit: 5 },
+            ])
+            .toArray()
+        : [];
+
+    const favoriteItems = favoriteItemsRaw.map((item: any) => ({
+      item_name: item._id,
+      order_count: item.order_count,
+      total_quantity: item.total_quantity,
+      total_spent: item.total_spent,
+    }));
 
     return NextResponse.json({
       success: true,

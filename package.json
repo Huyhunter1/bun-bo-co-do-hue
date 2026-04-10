@@ -6,13 +6,16 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "seed:mongo": "node database/seed-mongodb.js",
+    "migrate:atlas": "node database/migrate-local-to-atlas.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.2.3",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.344.0",
+    "mongodb": "^7.1.1",
     "mysql2": "^3.15.3",
     "next": "^14.2.0",
     "nodemailer": "^7.0.10",

@@ -1,23 +1,36 @@
 // API lấy danh sách coupon hiển thị trong gợi ý thanh toán
 import { NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { getDb } from "@/lib/mongodb";
 
 export async function GET() {
   try {
-    const sql = `
-      SELECT 
-        id, code, description, discount_type, discount_value,
-        min_order_amount, max_discount_amount,
-        suggestion_badge, suggestion_priority
-      FROM coupons 
-      WHERE is_active = TRUE 
-        AND show_in_suggestions = TRUE
-        AND (valid_until IS NULL OR valid_until > NOW())
-      ORDER BY suggestion_priority ASC, created_at DESC
-      LIMIT 6
-    `;
-
-    const coupons = await query(sql);
+    const db = await getDb();
+    const coupons = await db
+      .collection("coupons")
+      .find(
+        {
+          is_active: true,
+          show_in_suggestions: true,
+          $or: [{ valid_until: null }, { valid_until: { $gt: new Date() } }],
+        },
+        {
+          projection: {
+            _id: 0,
+            id: 1,
+            code: 1,
+            description: 1,
+            discount_type: 1,
+            discount_value: 1,
+            min_order_amount: 1,
+            max_discount_amount: 1,
+            suggestion_badge: 1,
+            suggestion_priority: 1,
+          },
+        }
+      )
+      .sort({ suggestion_priority: 1, created_at: -1 })
+      .limit(6)
+      .toArray();
 
     // Format data for frontend
     const formatted = coupons.map((coupon: any) => ({

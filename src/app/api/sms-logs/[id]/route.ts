@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { getDb, toNumberId } from "@/lib/mongodb";
 
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const { id } = params;
+    const id = toNumberId(params.id);
+    const db = await getDb();
 
     // Delete SMS log
-    await query(`DELETE FROM sms_logs WHERE id = ?`, [id]);
+    await db.collection("sms_logs").deleteOne({ id });
 
     return NextResponse.json({
       success: true,

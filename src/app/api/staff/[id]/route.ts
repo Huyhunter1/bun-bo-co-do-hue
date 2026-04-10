@@ -1,19 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { getDb, toNumberId } from "@/lib/mongodb";
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const { id } = params;
+    const id = toNumberId(params.id);
+    const db = await getDb();
     const body = await request.json();
     const { role, full_name, email, phone, status } = body;
 
     // Check if staff member exists
-    const staff = await query(`SELECT id, role FROM users WHERE id = ?`, [id]);
+    const staff = await db
+      .collection("users")
+      .findOne<{ id: number; role: string }>({ id }, { projection: { id: 1, role: 1 } });
 
-    if (!Array.isArray(staff) || staff.length === 0) {
+    if (!staff) {
       return NextResponse.json(
         {
           success: false,
@@ -23,32 +26,25 @@ export async function PUT(
       );
     }
 
-    // Build update query dynamically
-    const updates: string[] = [];
-    const values: any[] = [];
+    const updates: Record<string, any> = {};
 
     if (role !== undefined) {
-      updates.push("role = ?");
-      values.push(role);
+      updates.role = role;
     }
     if (full_name !== undefined) {
-      updates.push("full_name = ?");
-      values.push(full_name);
+      updates.full_name = full_name;
     }
     if (email !== undefined) {
-      updates.push("email = ?");
-      values.push(email);
+      updates.email = email;
     }
     if (phone !== undefined) {
-      updates.push("phone = ?");
-      values.push(phone);
+      updates.phone = phone;
     }
     if (status !== undefined) {
-      updates.push("status = ?");
-      values.push(status);
+      updates.status = status;
     }
 
-    if (updates.length === 0) {
+    if (Object.keys(updates).length === 0) {
       return NextResponse.json(
         {
           success: false,
@@ -58,10 +54,10 @@ export async function PUT(
       );
     }
 
-    values.push(id);
+    updates.updated_at = new Date();
 
     // Update staff member
-    await query(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`, values);
+    await db.collection("users").updateOne({ id }, { $set: updates });
 
     return NextResponse.json({
       success: true,
@@ -84,12 +80,15 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { id } = params;
+    const id = toNumberId(params.id);
+    const db = await getDb();
 
     // Check if staff member exists and is not an admin
-    const staff = await query(`SELECT role FROM users WHERE id = ?`, [id]);
+    const staff = await db
+      .collection("users")
+      .findOne<{ role: string }>({ id }, { projection: { role: 1 } });
 
-    if (!Array.isArray(staff) || staff.length === 0) {
+    if (!staff) {
       return NextResponse.json(
         {
           success: false,
@@ -99,7 +98,7 @@ export async function DELETE(
       );
     }
 
-    if ((staff[0] as any).role === "admin") {
+    if (staff.role === "admin") {
       return NextResponse.json(
         {
           success: false,
@@ -110,7 +109,7 @@ export async function DELETE(
     }
 
     // Delete staff member
-    await query(`DELETE FROM users WHERE id = ?`, [id]);
+    await db.collection("users").deleteOne({ id });
 
     return NextResponse.json({
       success: true,

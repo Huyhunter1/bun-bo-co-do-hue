@@ -1,6 +1,6 @@
 // src/app/api/reservations/[id]/route.ts - API chi tiết đặt bàn
 import { NextRequest, NextResponse } from "next/server";
-import { query, queryOne } from "@/lib/db";
+import { getDb, getNextSequence, toNumberId } from "@/lib/mongodb";
 import { sendReservationStatusEmail } from "@/lib/email";
 
 // Cập nhật trạng thái đặt bàn
@@ -9,15 +9,15 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const id = params.id;
+    const id = toNumberId(params.id);
+    const db = await getDb();
     const body = await request.json();
     const { status, table_number } = body;
 
     // Lấy thông tin đặt bàn trước khi update
-    const reservation: any = await queryOne(
-      "SELECT * FROM reservations WHERE id = ?",
-      [id]
-    );
+    const reservation: any = await db
+      .collection("reservations")
+      .findOne({ id }, { projection: { _id: 0 } });
 
     if (!reservation) {
       return NextResponse.json(
@@ -26,23 +26,15 @@ export async function PATCH(
       );
     }
 
-    let sql = "UPDATE reservations SET updated_at = CURRENT_TIMESTAMP";
-    const updateParams: any[] = [];
-
+    const updates: Record<string, any> = { updated_at: new Date() };
     if (status) {
-      sql += ", status = ?";
-      updateParams.push(status);
+      updates.status = status;
     }
-
     if (table_number) {
-      sql += ", table_number = ?";
-      updateParams.push(table_number);
+      updates.table_number = table_number;
     }
 
-    sql += " WHERE id = ?";
-    updateParams.push(id);
-
-    await query(sql, updateParams);
+    await db.collection("reservations").updateOne({ id }, { $set: updates });
 
     // Gửi email nếu có thay đổi trạng thái và có email
     if (status && reservation.customer_email) {
@@ -58,16 +50,15 @@ export async function PATCH(
         );
 
         // Lưu log email
-        await query(
-          `INSERT INTO email_logs (reservation_id, email, subject, status) 
-           VALUES (?, ?, ?, ?)`,
-          [
-            id,
-            reservation.customer_email,
-            `Cập nhật đặt bàn #${reservation.reservation_number}`,
-            "sent",
-          ]
-        );
+        const logId = await getNextSequence("email_logs");
+        await db.collection("email_logs").insertOne({
+          id: logId,
+          reservation_id: id,
+          email: reservation.customer_email,
+          subject: `Cập nhật đặt bàn #${reservation.reservation_number}`,
+          status: "sent",
+          sent_at: new Date(),
+        });
       } catch (emailError) {
         console.error("Error sending reservation status email:", emailError);
       }
@@ -96,8 +87,9 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const id = params.id;
-    await query("DELETE FROM reservations WHERE id = ?", [id]);
+    const id = toNumberId(params.id);
+    const db = await getDb();
+    await db.collection("reservations").deleteOne({ id });
 
     return NextResponse.json({
       success: true,

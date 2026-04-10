@@ -1,6 +1,6 @@
 // API để gửi email xác nhận đặt bàn
 import { NextRequest, NextResponse } from "next/server";
-import { queryOne, query } from "@/lib/db";
+import { getDb, getNextSequence, toNumberId } from "@/lib/mongodb";
 import { sendReservationStatusEmail } from "@/lib/email";
 
 export async function POST(
@@ -8,13 +8,13 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const id = params.id;
+    const id = toNumberId(params.id);
+    const db = await getDb();
 
     // Lấy thông tin đặt bàn
-    const reservation: any = await queryOne(
-      "SELECT * FROM reservations WHERE id = ?",
-      [id]
-    );
+    const reservation: any = await db
+      .collection("reservations")
+      .findOne({ id }, { projection: { _id: 0 } });
 
     if (!reservation) {
       return NextResponse.json(
@@ -50,17 +50,16 @@ export async function POST(
 
     // Lưu log email
     try {
-      await query(
-        `INSERT INTO email_logs (reservation_id, email, subject, status, message_id) 
-         VALUES (?, ?, ?, ?, ?)`,
-        [
-          id,
-          reservation.customer_email,
-          `Cập nhật đặt bàn #${reservation.reservation_number}`,
-          "sent",
-          emailResult.messageId || null,
-        ]
-      );
+      const logId = await getNextSequence("email_logs");
+      await db.collection("email_logs").insertOne({
+        id: logId,
+        reservation_id: id,
+        email: reservation.customer_email,
+        subject: `Cập nhật đặt bàn #${reservation.reservation_number}`,
+        status: "sent",
+        message_id: emailResult.messageId || null,
+        sent_at: new Date(),
+      });
     } catch (logError) {
       console.error("Error saving email log:", logError);
     }

@@ -1,47 +1,44 @@
 // src/app/api/menu/route.ts - API lấy thực đơn từ database
 import { NextRequest, NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { getDb, getNextSequence } from "@/lib/mongodb";
 import { syncMenuToJson } from "@/lib/syncMenu";
 
 export async function GET(request: NextRequest) {
   try {
+    const db = await getDb();
     const searchParams = request.nextUrl.searchParams;
     const category = searchParams.get("category");
     const featured = searchParams.get("featured");
     const available = searchParams.get("available");
 
-    let sql = `
-      SELECT 
-        id,
-        name,
-        description,
-        price,
-        category,
-        image_url as image,
-        is_featured as popular,
-        0 as spicy_level,
-        is_available as available
-      FROM menu_items 
-      WHERE 1=1
-    `;
-    const params: any[] = [];
-
+    const filter: Record<string, any> = {};
     if (category) {
-      sql += " AND category = ?";
-      params.push(category);
+      filter.category = category;
     }
-
     if (featured === "true") {
-      sql += " AND is_featured = TRUE";
+      filter.is_featured = true;
     }
-
     if (available !== "false") {
-      sql += " AND is_available = TRUE";
+      filter.is_available = true;
     }
 
-    sql += " ORDER BY is_featured DESC, sold_count DESC, name ASC";
-
-    const items = await query(sql, params);
+    const items = await db
+      .collection("menu_items")
+      .find(filter)
+      .sort({ is_featured: -1, sold_count: -1, name: 1 })
+      .project({
+        _id: 0,
+        id: 1,
+        name: 1,
+        description: 1,
+        price: 1,
+        category: 1,
+        image: "$image_url",
+        popular: "$is_featured",
+        spicy_level: { $literal: 0 },
+        available: "$is_available",
+      })
+      .toArray();
 
     return NextResponse.json({
       success: true,
@@ -64,6 +61,7 @@ export async function GET(request: NextRequest) {
 // Thêm món mới (Admin only)
 export async function POST(request: NextRequest) {
   try {
+    const db = await getDb();
     const body = await request.json();
     const {
       name,
@@ -85,23 +83,25 @@ export async function POST(request: NextRequest) {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "");
 
-    const sql = `
-      INSERT INTO menu_items 
-      (name, slug, description, price, category, image_url, is_available, is_featured, preparation_time)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
+    const nextId = await getNextSequence("menu_items");
 
-    const result = await query(sql, [
+    await db.collection("menu_items").insertOne({
+      id: nextId,
       name,
       slug,
       description,
       price,
       category,
-      image || null,
-      available ?? true,
-      popular ?? false,
-      15, // default preparation time
-    ]);
+      image_url: image || null,
+      is_available: available ?? true,
+      is_featured: popular ?? false,
+      preparation_time: 15,
+      sold_count: 0,
+      is_spicy: Boolean(spicy_level && spicy_level > 0),
+      rating: 0,
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
 
     // Sync to menu.json for homepage
     await syncMenuToJson();
@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: "Thêm món thành công",
-      data: result,
+      data: { id: nextId },
     });
   } catch (error: any) {
     console.error("Menu POST Error:", error);

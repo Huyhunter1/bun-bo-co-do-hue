@@ -1,42 +1,77 @@
 // API để lấy danh sách SMS logs từ database
 import { NextRequest, NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { getDb } from "@/lib/mongodb";
 
 export async function GET(request: NextRequest) {
   try {
+    const db = await getDb();
     const searchParams = request.nextUrl.searchParams;
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "20");
     const offset = (page - 1) * limit;
 
     // Lấy danh sách SMS logs
-    const smsLogs = await query(
-      `SELECT 
-        sl.*,
-        o.order_number,
-        o.customer_name
-      FROM sms_logs sl
-      LEFT JOIN orders o ON sl.order_id = o.id
-      ORDER BY sl.sent_at DESC
-      LIMIT ${limit} OFFSET ${offset}`,
-      []
-    );
+    const smsLogs = await db
+      .collection("sms_logs")
+      .aggregate([
+        { $sort: { sent_at: -1 } },
+        { $skip: offset },
+        { $limit: limit },
+        {
+          $lookup: {
+            from: "orders",
+            localField: "order_id",
+            foreignField: "id",
+            as: "order",
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            id: 1,
+            order_id: 1,
+            phone_number: 1,
+            message_type: 1,
+            message_content: 1,
+            status: 1,
+            error_message: 1,
+            provider: 1,
+            message_id: 1,
+            sent_at: 1,
+            cost: 1,
+            order_number: { $arrayElemAt: ["$order.order_number", 0] },
+            customer_name: { $arrayElemAt: ["$order.customer_name", 0] },
+          },
+        },
+      ])
+      .toArray();
 
     // Lấy tổng số
-    const [{ total }] = await query<any[]>(
-      "SELECT COUNT(*) as total FROM sms_logs"
-    );
+    const total = await db.collection("sms_logs").countDocuments();
 
     // Lấy thống kê
-    const [stats] = await query<any[]>(
-      `SELECT 
-        COUNT(*) as total,
-        SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent,
-        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
-        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-        SUM(cost) as total_cost
-      FROM sms_logs`
-    );
+    const [stats] = await db
+      .collection("sms_logs")
+      .aggregate([
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            sent: {
+              $sum: { $cond: [{ $eq: ["$status", "sent"] }, 1, 0] },
+            },
+            failed: {
+              $sum: { $cond: [{ $eq: ["$status", "failed"] }, 1, 0] },
+            },
+            pending: {
+              $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] },
+            },
+            total_cost: { $sum: "$cost" },
+          },
+        },
+        { $project: { _id: 0 } },
+      ])
+      .toArray();
 
     return NextResponse.json({
       success: true,

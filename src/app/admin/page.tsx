@@ -2751,7 +2751,9 @@ function CouponsTab({
   const fetchCoupons = async () => {
     try {
       setLoading(true);
-      const response = await fetch("/api/coupons");
+      const response = await fetch(`/api/coupons?ts=${Date.now()}`, {
+        cache: "no-store",
+      });
       const data = await response.json();
 
       if (data.success) {
@@ -2851,6 +2853,17 @@ function CouponsTab({
       const data = await response.json();
 
       if (data.success) {
+        if (data.data) {
+          setCoupons((prev) => {
+            const exists = prev.some((item) => item.id === data.data.id);
+            if (exists) {
+              return prev.map((item) =>
+                item.id === data.data.id ? { ...item, ...data.data } : item
+              );
+            }
+            return [data.data, ...prev];
+          });
+        }
         showToast(
           editingCoupon
             ? "Cập nhật mã giảm giá thành công"
@@ -2858,7 +2871,7 @@ function CouponsTab({
           "success"
         );
         setShowAddModal(false);
-        fetchCoupons();
+        await fetchCoupons();
       } else {
         showToast(data.error || "Có lỗi xảy ra", "error");
       }
@@ -2884,8 +2897,9 @@ function CouponsTab({
       const data = await response.json();
 
       if (data.success) {
+        setCoupons((prev) => prev.filter((item) => item.id !== couponToDelete.id));
         showToast("Xóa mã giảm giá thành công", "success");
-        fetchCoupons();
+        await fetchCoupons();
       } else {
         showToast("Không thể xóa mã giảm giá", "error");
       }
@@ -2912,11 +2926,16 @@ function CouponsTab({
       const data = await response.json();
 
       if (data.success) {
+        setCoupons((prev) =>
+          prev.map((item) =>
+            item.id === coupon.id ? { ...item, is_active: !coupon.is_active } : item
+          )
+        );
         showToast(
           `Đã ${coupon.is_active ? "tắt" : "bật"} mã giảm giá`,
           "success"
         );
-        fetchCoupons();
+        await fetchCoupons();
       } else {
         showToast("Không thể cập nhật trạng thái", "error");
       }

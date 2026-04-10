@@ -1,6 +1,6 @@
 // src/app/api/menu/[id]/route.ts - API chi tiết món ăn
 import { NextRequest, NextResponse } from "next/server";
-import { query, queryOne } from "@/lib/db";
+import { getDb, toNumberId } from "@/lib/mongodb";
 import { syncMenuToJson } from "@/lib/syncMenu";
 
 export async function GET(
@@ -8,8 +8,9 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const id = params.id;
-    const item = await queryOne("SELECT * FROM menu_items WHERE id = ?", [id]);
+    const id = toNumberId(params.id);
+    const db = await getDb();
+    const item = await db.collection("menu_items").findOne({ id }, { projection: { _id: 0 } });
 
     if (!item) {
       return NextResponse.json(
@@ -37,7 +38,8 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
-    const id = params.id;
+    const id = toNumberId(params.id);
+    const db = await getDb();
     const body = await request.json();
     const {
       name,
@@ -50,24 +52,21 @@ export async function PUT(
       available,
     } = body;
 
-    const sql = `
-      UPDATE menu_items 
-      SET name = ?, description = ?, price = ?, category = ?, 
-          image_url = ?, is_available = ?, is_featured = ?,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `;
-
-    await query(sql, [
-      name,
-      description,
-      price,
-      category,
-      image || null,
-      available ?? true,
-      popular ?? false,
-      id,
-    ]);
+    await db.collection("menu_items").updateOne(
+      { id },
+      {
+        $set: {
+          name,
+          description,
+          price,
+          category,
+          image_url: image || null,
+          is_available: available ?? true,
+          is_featured: popular ?? false,
+          updated_at: new Date(),
+        },
+      }
+    );
 
     // Sync to menu.json for homepage
     await syncMenuToJson();
@@ -95,8 +94,9 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const id = params.id;
-    await query("DELETE FROM menu_items WHERE id = ?", [id]);
+    const id = toNumberId(params.id);
+    const db = await getDb();
+    await db.collection("menu_items").deleteOne({ id });
 
     // Sync to menu.json for homepage
     await syncMenuToJson();

@@ -1,6 +1,6 @@
 // API endpoint để gửi SMS thông báo đơn hàng
 import { NextRequest, NextResponse } from "next/server";
-import { query, queryOne } from "@/lib/db";
+import { getDb, getNextSequence, toNumberId } from "@/lib/mongodb";
 import { sendOrderStatusSMS } from "@/lib/sms";
 
 export async function POST(
@@ -8,12 +8,13 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const orderId = params.id;
+    const orderId = toNumberId(params.id);
+    const db = await getDb();
 
     // Lấy thông tin đơn hàng
-    const order = await queryOne<any>("SELECT * FROM orders WHERE id = ?", [
-      orderId,
-    ]);
+    const order = await db
+      .collection("orders")
+      .findOne<any>({ id: orderId }, { projection: { _id: 0 } });
 
     if (!order) {
       return NextResponse.json(
@@ -35,22 +36,19 @@ export async function POST(
     const messageContent = result.messageContent || "";
 
     try {
-      await query(
-        `INSERT INTO sms_logs (
-          order_id, phone_number, message_type, message_content,
-          status, error_message, provider, message_id, sent_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-        [
-          orderId,
-          order.customer_phone,
-          "order_status",
-          messageContent,
-          logStatus,
-          result.success ? null : result.message,
-          "esms",
-          result.messageId || null,
-        ]
-      );
+      const logId = await getNextSequence("sms_logs");
+      await db.collection("sms_logs").insertOne({
+        id: logId,
+        order_id: orderId,
+        phone_number: order.customer_phone,
+        message_type: "order_status",
+        message_content: messageContent,
+        status: logStatus,
+        error_message: result.success ? null : result.message,
+        provider: (process.env.SMS_PROVIDER || "infobip").toLowerCase(),
+        message_id: result.messageId || null,
+        sent_at: new Date(),
+      });
     } catch (logError) {
       console.error("Failed to save SMS log:", logError);
     }

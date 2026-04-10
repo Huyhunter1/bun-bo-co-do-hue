@@ -1,87 +1,176 @@
 // src/app/api/stats/route.ts - API thống kê cho dashboard
 import { NextRequest, NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { getDb } from "@/lib/mongodb";
 
 export async function GET(request: NextRequest) {
   try {
+    const db = await getDb();
+    const now = new Date();
+    const todayStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      0,
+      0,
+      0,
+      0
+    );
+    const todayEnd = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      23,
+      59,
+      59,
+      999
+    );
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+    const nextMonthStart = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      1,
+      0,
+      0,
+      0,
+      0
+    );
+
     // Tổng doanh thu hôm nay
-    const [todayStats] = await query<any[]>(`
-      SELECT 
-        COALESCE(SUM(total_amount), 0) as revenue,
-        COUNT(*) as orders
-      FROM orders 
-      WHERE DATE(created_at) = CURDATE() 
-      AND order_status != 'cancelled'
-    `);
+    const [todayStats] = await db
+      .collection("orders")
+      .aggregate<any>([
+        {
+          $match: {
+            created_at: { $gte: todayStart, $lte: todayEnd },
+            order_status: { $ne: "cancelled" },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            revenue: { $sum: "$total_amount" },
+            orders: { $sum: 1 },
+          },
+        },
+        { $project: { _id: 0 } },
+      ])
+      .toArray();
 
     // Tổng doanh thu tháng này
-    const [monthStats] = await query<any[]>(`
-      SELECT 
-        COALESCE(SUM(total_amount), 0) as revenue,
-        COUNT(*) as orders
-      FROM orders 
-      WHERE MONTH(created_at) = MONTH(CURDATE()) 
-      AND YEAR(created_at) = YEAR(CURDATE())
-      AND order_status != 'cancelled'
-    `);
+    const [monthStats] = await db
+      .collection("orders")
+      .aggregate<any>([
+        {
+          $match: {
+            created_at: { $gte: monthStart, $lt: nextMonthStart },
+            order_status: { $ne: "cancelled" },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            revenue: { $sum: "$total_amount" },
+            orders: { $sum: 1 },
+          },
+        },
+        { $project: { _id: 0 } },
+      ])
+      .toArray();
 
     // Số đơn hàng theo trạng thái
-    const ordersByStatus = await query(`
-      SELECT 
-        order_status,
-        COUNT(*) as count
-      FROM orders 
-      WHERE DATE(created_at) = CURDATE()
-      GROUP BY order_status
-    `);
+    const ordersByStatus = await db
+      .collection("orders")
+      .aggregate([
+        { $match: { created_at: { $gte: todayStart, $lte: todayEnd } } },
+        { $group: { _id: "$order_status", count: { $sum: 1 } } },
+      ])
+      .toArray();
 
     // Đơn hàng gần đây
-    const recentOrders = await query(`
-      SELECT 
-        id, order_number, customer_name, customer_phone,
-        total_amount, order_status, payment_status, created_at
-      FROM orders 
-      ORDER BY created_at DESC 
-      LIMIT 10
-    `);
+    const recentOrders = await db
+      .collection("orders")
+      .find(
+        {},
+        {
+          projection: {
+            _id: 0,
+            id: 1,
+            order_number: 1,
+            customer_name: 1,
+            customer_phone: 1,
+            total_amount: 1,
+            order_status: 1,
+            payment_status: 1,
+            created_at: 1,
+          },
+        }
+      )
+      .sort({ created_at: -1 })
+      .limit(10)
+      .toArray();
 
     // Top món bán chạy
-    const topItems = await query(`
-      SELECT 
-        mi.name,
-        SUM(oi.quantity) as total_sold,
-        SUM(oi.subtotal) as revenue
-      FROM order_items oi
-      JOIN menu_items mi ON oi.menu_item_id = mi.id
-      JOIN orders o ON oi.order_id = o.id
-      WHERE DATE(o.created_at) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-      AND o.order_status != 'cancelled'
-      GROUP BY mi.id, mi.name
-      ORDER BY total_sold DESC
-      LIMIT 5
-    `);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const topItemsRaw = await db
+      .collection("order_items")
+      .aggregate([
+        {
+          $lookup: {
+            from: "orders",
+            localField: "order_id",
+            foreignField: "id",
+            as: "order",
+          },
+        },
+        { $unwind: "$order" },
+        {
+          $match: {
+            "order.created_at": { $gte: sevenDaysAgo },
+            "order.order_status": { $ne: "cancelled" },
+          },
+        },
+        {
+          $group: {
+            _id: "$menu_item_id",
+            name: { $first: "$item_name" },
+            total_sold: { $sum: "$quantity" },
+            revenue: { $sum: "$subtotal" },
+          },
+        },
+        { $sort: { total_sold: -1 } },
+        { $limit: 5 },
+      ])
+      .toArray();
+
+    const topItems = topItemsRaw.map((item: any) => ({
+      name: item.name,
+      total_sold: item.total_sold,
+      revenue: item.revenue,
+    }));
 
     // Đặt bàn hôm nay
-    const [todayReservations] = await query<any[]>(`
-      SELECT COUNT(*) as count
-      FROM reservations
-      WHERE reservation_date = CURDATE()
-      AND status NOT IN ('cancelled', 'no-show')
-    `);
+    const todayDateText = now.toISOString().split("T")[0];
+    const todayReservationsCount = await db.collection("reservations").countDocuments({
+      reservation_date: todayDateText,
+      status: { $nin: ["cancelled", "no-show"] },
+    });
 
     return NextResponse.json({
       success: true,
       data: {
         today: {
-          revenue: todayStats.revenue,
-          orders: todayStats.orders,
-          reservations: todayReservations.count,
+          revenue: todayStats?.revenue || 0,
+          orders: todayStats?.orders || 0,
+          reservations: todayReservationsCount,
         },
         month: {
-          revenue: monthStats.revenue,
-          orders: monthStats.orders,
+          revenue: monthStats?.revenue || 0,
+          orders: monthStats?.orders || 0,
         },
-        ordersByStatus,
+        ordersByStatus: ordersByStatus.map((row: any) => ({
+          order_status: row._id,
+          count: row.count,
+        })),
         recentOrders,
         topItems,
       },

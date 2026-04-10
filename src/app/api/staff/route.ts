@@ -1,15 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { getDb, getNextSequence } from "@/lib/mongodb";
 import bcrypt from "bcryptjs";
 
 export async function GET() {
   try {
-    // Fetch all staff members (exclude password)
-    const staff = await query(`
-      SELECT id, username, full_name, email, phone, role, status, created_at
-      FROM users
-      ORDER BY created_at DESC
-    `);
+    const db = await getDb();
+    const staff = await db
+      .collection("users")
+      .find(
+        {},
+        {
+          projection: {
+            _id: 0,
+            id: 1,
+            username: 1,
+            full_name: 1,
+            email: 1,
+            phone: 1,
+            role: 1,
+            status: 1,
+            created_at: 1,
+          },
+        }
+      )
+      .sort({ created_at: -1 })
+      .toArray();
 
     return NextResponse.json({
       success: true,
@@ -29,6 +44,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const db = await getDb();
     const body = await request.json();
     const { username, password, role, full_name, email, phone } = body;
 
@@ -44,12 +60,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if username already exists
-    const existingUser = await query(
-      `SELECT id FROM users WHERE username = ?`,
-      [username]
-    );
+    const existingUser = await db.collection("users").findOne({ username });
 
-    if (Array.isArray(existingUser) && existingUser.length > 0) {
+    if (existingUser) {
       return NextResponse.json(
         {
           success: false,
@@ -68,23 +81,25 @@ export async function POST(request: NextRequest) {
     const staffRole = role || "staff";
 
     // Insert new staff member
-    const result = await query(
-      `INSERT INTO users (username, password, full_name, email, phone, role) VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        username,
-        hashedPassword,
-        staffFullName,
-        staffEmail,
-        phone || null,
-        staffRole,
-      ]
-    );
+    const nextId = await getNextSequence("users");
+    await db.collection("users").insertOne({
+      id: nextId,
+      username,
+      password: hashedPassword,
+      full_name: staffFullName,
+      email: staffEmail,
+      phone: phone || null,
+      role: staffRole,
+      status: "active",
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
 
     return NextResponse.json({
       success: true,
       message: "Staff member added successfully",
       data: {
-        id: (result as any).insertId,
+        id: nextId,
         username,
         full_name: staffFullName,
         email: staffEmail,
