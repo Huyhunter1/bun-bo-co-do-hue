@@ -1,16 +1,69 @@
 const fs = require("fs");
 const path = require("path");
+const dns = require("dns");
 const { MongoClient } = require("mongodb");
 const bcrypt = require("bcryptjs");
 require("dotenv").config({ path: path.join(process.cwd(), ".env.local") });
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
 const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "bun_bo_hue_co_do";
+const MONGODB_DNS_SERVERS = (process.env.MONGODB_DNS_SERVERS || "8.8.8.8,1.1.1.1")
+  .split(",")
+  .map((server) => server.trim())
+  .filter(Boolean);
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "Admin@12345";
 const ADMIN_FULL_NAME = process.env.ADMIN_FULL_NAME || "System Admin";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@bunbohuecodo.vn";
+
+if (MONGODB_URI.startsWith("mongodb+srv://") && MONGODB_DNS_SERVERS.length > 0) {
+  dns.setServers(MONGODB_DNS_SERVERS);
+}
+
+async function getResolvedMongoUri() {
+  if (!MONGODB_URI.startsWith("mongodb+srv://")) {
+    return MONGODB_URI;
+  }
+
+  try {
+    const parsed = new URL(MONGODB_URI);
+    const resolver = new dns.promises.Resolver();
+
+    if (MONGODB_DNS_SERVERS.length > 0) {
+      resolver.setServers(MONGODB_DNS_SERVERS);
+    }
+
+    const srvRecords = await resolver.resolveSrv(`_mongodb._tcp.${parsed.hostname}`);
+    const txtRecords = await resolver.resolveTxt(parsed.hostname).catch(() => []);
+
+    const hosts = srvRecords.map((record) => `${record.name}:${record.port}`).join(",");
+    const params = new URLSearchParams(parsed.search);
+
+    for (const record of txtRecords) {
+      const txt = record.join("");
+      const txtParams = new URLSearchParams(txt);
+      txtParams.forEach((value, key) => {
+        if (!params.has(key)) {
+          params.set(key, value);
+        }
+      });
+    }
+
+    if (!params.has("tls")) {
+      params.set("tls", "true");
+    }
+
+    const username = encodeURIComponent(parsed.username);
+    const password = encodeURIComponent(parsed.password);
+    const auth = username ? `${username}:${password}@` : "";
+    const dbPath = parsed.pathname && parsed.pathname !== "/" ? parsed.pathname : "";
+
+    return `mongodb://${auth}${hosts}${dbPath}?${params.toString()}`;
+  } catch {
+    return MONGODB_URI;
+  }
+}
 
 function readJson(relativePath) {
   const fullPath = path.join(process.cwd(), relativePath);
@@ -224,7 +277,8 @@ async function seedAdmin(db) {
 }
 
 async function main() {
-  const client = new MongoClient(MONGODB_URI);
+  const resolvedUri = await getResolvedMongoUri();
+  const client = new MongoClient(resolvedUri);
   try {
     await client.connect();
     const db = client.db(MONGODB_DB_NAME);
