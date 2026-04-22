@@ -1,19 +1,8 @@
-import dns from "dns";
 import { Db, MongoClient } from "mongodb";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
 const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "bun_bo_hue_co_do";
 const IS_DEVELOPMENT = process.env.NODE_ENV === "development";
-const MONGODB_DNS_SERVERS = (process.env.MONGODB_DNS_SERVERS || "8.8.8.8,1.1.1.1")
-  .split(",")
-  .map((server) => server.trim())
-  .filter(Boolean);
-
-if (IS_DEVELOPMENT && MONGODB_URI.startsWith("mongodb+srv://")) {
-  if (MONGODB_DNS_SERVERS.length > 0) {
-    dns.setServers(MONGODB_DNS_SERVERS);
-  }
-}
 
 if (!MONGODB_URI) {
   throw new Error("Missing MONGODB_URI environment variable");
@@ -26,67 +15,23 @@ declare global {
 
 let clientPromise: Promise<MongoClient> | undefined;
 
-async function getResolvedMongoUri(): Promise<string> {
-  if (!MONGODB_URI.startsWith("mongodb+srv://") || !IS_DEVELOPMENT) {
-    return MONGODB_URI;
-  }
-
-  try {
-    const parsed = new URL(MONGODB_URI);
-    const resolver = new dns.promises.Resolver();
-
-    if (MONGODB_DNS_SERVERS.length > 0) {
-      resolver.setServers(MONGODB_DNS_SERVERS);
-    }
-
-    const srvRecords = await resolver.resolveSrv(`_mongodb._tcp.${parsed.hostname}`);
-    const txtRecords = await resolver.resolveTxt(parsed.hostname).catch(() => [] as string[][]);
-
-    const hosts = srvRecords.map((record) => `${record.name}:${record.port}`).join(",");
-    const params = new URLSearchParams(parsed.search);
-
-    for (const record of txtRecords) {
-      const txt = record.join("");
-      const txtParams = new URLSearchParams(txt);
-      txtParams.forEach((value, key) => {
-        if (!params.has(key)) {
-          params.set(key, value);
-        }
-      });
-    }
-
-    if (!params.has("tls")) {
-      params.set("tls", "true");
-    }
-
-    const username = encodeURIComponent(parsed.username);
-    const password = encodeURIComponent(parsed.password);
-    const auth = username ? `${username}:${password}@` : "";
-    const dbPath = parsed.pathname && parsed.pathname !== "/" ? parsed.pathname : "";
-
-    return `mongodb://${auth}${hosts}${dbPath}?${params.toString()}`;
-  } catch {
-    return MONGODB_URI;
-  }
-}
-
 async function connectMongoClient(): Promise<MongoClient> {
-  const resolvedUri = await getResolvedMongoUri();
-  
   // During build time (Vercel static generation), use shorter timeouts for faster failure
   const isBuildTime = process.env.__NEXT_PRIVATE_BUILD_ID !== undefined;
-  const baseTimeout = isBuildTime ? 2000 : 5000;
+  const baseTimeout = isBuildTime ? 2000 : 8000;
   
-  const client = new MongoClient(resolvedUri, {
+  // Use only valid MongoDB driver options
+  const connectionOptions: any = {
+    serverSelectionTimeoutMS: baseTimeout,
+    socketTimeoutMS: isBuildTime ? 3000 : 15000,
     retryReads: !isBuildTime,
     retryWrites: !isBuildTime,
-    serverSelectionTimeoutMS: baseTimeout,
-    connectTimeoutMS: baseTimeout,
-    socketTimeoutMS: isBuildTime ? 3000 : 10000,
-    maxPoolSize: isBuildTime ? 5 : 10,
-    maxIdleTimeMS: 30000,
-    waitQueueTimeoutMS: isBuildTime ? 1000 : 3000,
-  });
+    maxPoolSize: isBuildTime ? 5 : 15,
+    minPoolSize: 2,
+    maxIdleTimeMS: 45000,
+  };
+  
+  const client = new MongoClient(MONGODB_URI, connectionOptions);
   return client.connect();
 }
 
@@ -124,32 +69,72 @@ function isTransientMongoError(error: unknown): boolean {
   const code = String((error as any)?.code || "").toLowerCase();
   const causeCode = String((error as any)?.cause?.code || "").toLowerCase();
   const name = String((error as any)?.name || "").toLowerCase();
+  const reason = String((error as any)?.reason || "").toLowerCase();
 
-  return (
+  // Transient network errors
+  const isNetworkError =
     name.includes("mongonetworkerror") ||
-    message.includes("ssl") ||
-    message.includes("tls") ||
-    message.includes("connection") ||
+    name.includes("replicasetnoprimary") ||
     code.includes("econnreset") ||
     code.includes("etimedout") ||
+    code.includes("econnrefused") ||
+    reason.includes("no suitable servers");
+
+  // SSL/TLS errors (usually recoverable by reconnecting)
+  const isSSLError =
+    message.includes("ssl") ||
+    message.includes("tls") ||
+    message.includes("certificate") ||
+    code.includes("err_ssl") ||
     causeCode.includes("err_ssl") ||
-    causeCode.includes("econnreset")
-  );
+    message.includes("alert");
+
+  // Connection errors
+  const isConnectionError =
+    message.includes("connection") ||
+    message.includes("timeout") ||
+    message.includes("server");
+
+  return isNetworkError || isSSLError || isConnectionError;
 }
 
 export async function getDb(): Promise<Db> {
-  try {
-    const client = await getClientPromise();
-    return client.db(MONGODB_DB_NAME);
-  } catch (error) {
-    if (!isTransientMongoError(error)) {
-      throw error;
-    }
+  let lastError: unknown;
+  
+  // Try up to 2 times with fresh connection on SSL errors
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const client = await getClientPromise();
+      
+      // Quick health check
+      if (attempt === 1) {
+        try {
+          await client.db("admin").command({ ping: 1 });
+        } catch (e) {
+          console.warn(`⚠️ Ping failed (attempt ${attempt}), resetting connection...`);
+          resetClientPromise();
+          lastError = e;
+          if (attempt === 1) continue; // Try again
+          throw e;
+        }
+      }
+      
+      return client.db(MONGODB_DB_NAME);
+    } catch (error) {
+      lastError = error;
+      
+      if (!isTransientMongoError(error)) {
+        throw error;
+      }
 
-    resetClientPromise();
-    const client = await getClientPromise();
-    return client.db(MONGODB_DB_NAME);
+      if (attempt === 1) {
+        console.warn(`🔄 Transient error (attempt ${attempt}), reconnecting...`);
+        resetClientPromise();
+      }
+    }
   }
+  
+  throw lastError || new Error("Failed to connect to MongoDB after retries");
 }
 
 export async function getNextSequence(sequenceName: string): Promise<number> {
@@ -170,4 +155,27 @@ export function toNumberId(rawId: string): number {
     throw new Error("Invalid numeric id");
   }
   return id;
+}
+
+// Health check function for diagnostics
+export async function checkMongoDBHealth(): Promise<{
+  connected: boolean;
+  latency: number;
+  error?: string;
+}> {
+  const startTime = Date.now();
+  try {
+    const client = await getClientPromise();
+    await client.db("admin").command({ ping: 1 });
+    return {
+      connected: true,
+      latency: Date.now() - startTime,
+    };
+  } catch (error) {
+    return {
+      connected: false,
+      latency: Date.now() - startTime,
+      error: String((error as any)?.message || "Unknown error"),
+    };
+  }
 }
