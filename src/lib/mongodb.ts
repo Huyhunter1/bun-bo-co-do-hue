@@ -72,15 +72,20 @@ async function getResolvedMongoUri(): Promise<string> {
 
 async function connectMongoClient(): Promise<MongoClient> {
   const resolvedUri = await getResolvedMongoUri();
+  
+  // During build time (Vercel static generation), use shorter timeouts for faster failure
+  const isBuildTime = process.env.__NEXT_PRIVATE_BUILD_ID !== undefined;
+  const baseTimeout = isBuildTime ? 2000 : 5000;
+  
   const client = new MongoClient(resolvedUri, {
-    retryReads: true,
-    retryWrites: true,
-    serverSelectionTimeoutMS: 5000,
-    connectTimeoutMS: 5000,
-    socketTimeoutMS: 10000,
-    maxPoolSize: 10,
+    retryReads: !isBuildTime,
+    retryWrites: !isBuildTime,
+    serverSelectionTimeoutMS: baseTimeout,
+    connectTimeoutMS: baseTimeout,
+    socketTimeoutMS: isBuildTime ? 3000 : 10000,
+    maxPoolSize: isBuildTime ? 5 : 10,
     maxIdleTimeMS: 30000,
-    waitQueueTimeoutMS: 3000,
+    waitQueueTimeoutMS: isBuildTime ? 1000 : 3000,
   });
   return client.connect();
 }

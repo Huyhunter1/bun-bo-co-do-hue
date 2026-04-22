@@ -33,6 +33,9 @@ import {
 } from "@/context/NotificationContext";
 import ConfirmModal from "@/components/ConfirmModal";
 
+// Force dynamic rendering - admin page requires authentication and DB access
+export const dynamic = "force-dynamic";
+
 type TabType =
   | "dashboard"
   | "orders"
