@@ -17,16 +17,16 @@ function signToken(payload: { id: number; username: string; role: string }) {
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
 
+  const { username, password } = body;
+
+  if (!username || !password) {
+    return NextResponse.json(
+      { success: false, error: "Thiếu thông tin đăng nhập" },
+      { status: 400 }
+    );
+  }
+
   try {
-    const { username, password } = body;
-
-    if (!username || !password) {
-      return NextResponse.json(
-        { success: false, error: "Thiếu thông tin đăng nhập" },
-        { status: 400 }
-      );
-    }
-
     // Tìm user
     const db = await getDb();
     const user = await db
@@ -69,11 +69,13 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: any) {
     console.error("Login Error:", error);
+    
+    // Try fallback authentication
     try {
       const adminUsername = process.env.ADMIN_USERNAME || "admin";
       const adminPassword = process.env.ADMIN_PASSWORD || "Admin@12345";
 
-      if (body?.username === adminUsername && body?.password === adminPassword) {
+      if (username === adminUsername && password === adminPassword) {
         const fallbackUser = {
           id: 1,
           username: adminUsername,
@@ -89,23 +91,34 @@ export async function POST(request: NextRequest) {
           role: fallbackUser.role,
         });
 
-        return NextResponse.json({
-          success: true,
-          message: "Đăng nhập thành công (fallback)",
-          data: {
-            user: fallbackUser,
-            token,
+        return NextResponse.json(
+          {
+            success: true,
+            message: "Đăng nhập thành công (chế độ dự phòng)",
+            data: {
+              user: fallbackUser,
+              token,
+            },
+            fallback: true,
           },
-          fallback: true,
-        });
+          { status: 200 }
+        );
       }
-    } catch {
-      // noop
-    }
 
-    return NextResponse.json(
-      { success: false, error: "Lỗi đăng nhập", details: error.message },
-      { status: 500 }
-    );
+      return NextResponse.json(
+        { success: false, error: "Tên đăng nhập hoặc mật khẩu không đúng" },
+        { status: 401 }
+      );
+    } catch (fallbackError: any) {
+      console.error("Fallback Login Error:", fallbackError);
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Lỗi đăng nhập",
+          details: error.message || "Database connection failed",
+        },
+        { status: 503 }
+      );
+    }
   }
 }
