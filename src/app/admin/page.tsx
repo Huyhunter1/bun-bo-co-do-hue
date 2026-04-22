@@ -396,6 +396,30 @@ function DashboardTab() {
     fetchDashboardData();
   }, [period]);
 
+  // Auto-refresh dashboard data every 30 seconds to show latest stats
+  useEffect(() => {
+    const refreshInterval = setInterval(() => {
+      console.log("🔄 Auto-refreshing dashboard data...");
+      fetchDashboardData();
+    }, 30000); // 30 seconds for dashboard (slower than orders)
+
+    // Also refresh when user focuses back on the window
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log("🔄 Page focused - refreshing dashboard");
+        fetchDashboardData();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // Cleanup
+    return () => {
+      clearInterval(refreshInterval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [period]);
+
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
@@ -1194,7 +1218,29 @@ function OrdersTab({
   const [sendingEmail, setSendingEmail] = useState(false);
 
   useEffect(() => {
+    // Fetch orders on mount
     fetchOrders();
+
+    // Auto-refresh orders every 15 seconds to catch new orders from customers
+    const refreshInterval = setInterval(() => {
+      fetchOrders();
+    }, 15000);
+
+    // Also refresh when user focuses back on the window
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log("🔄 Page focused - refreshing orders");
+        fetchOrders();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // Cleanup
+    return () => {
+      clearInterval(refreshInterval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
   const fetchOrders = async () => {
@@ -2231,6 +2277,29 @@ function ReservationsTab({
 
   useEffect(() => {
     fetchReservations();
+  }, [filterStatus, filterDate]);
+
+  // Auto-refresh reservations every 15 seconds to catch new reservations from customers
+  useEffect(() => {
+    const refreshInterval = setInterval(() => {
+      fetchReservations();
+    }, 15000);
+
+    // Also refresh when user focuses back on the window
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log("🔄 Page focused - refreshing reservations");
+        fetchReservations();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // Cleanup
+    return () => {
+      clearInterval(refreshInterval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [filterStatus, filterDate]);
 
   const fetchReservations = async () => {
