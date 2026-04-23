@@ -44,26 +44,6 @@ Du lieu nguon nam trong:
 - MongoDB Atlas cluster da tao user truy cap
 - Atlas Network Access da cho phep IP cua ban (hoac 0.0.0.0/0 cho moi truong hoc tap)
 
-## Bien moi truong
-
-Tao file .env.local va cau hinh toi thieu:
-
-MONGODB_URI=mongodb+srv://<username>:<password>@<cluster>.mongodb.net/?appName=<app>&retryWrites=true&w=majority
-MONGODB_DB_NAME=bun_bo_hue_co_do
-TARGET_MONGODB_URI=mongodb+srv://<username>:<password>@<cluster>.mongodb.net/?appName=<app>&retryWrites=true&w=majority
-MONGODB_DNS_SERVERS=8.8.8.8,1.1.1.1
-
-JWT_SECRET=replace_with_strong_secret_key
-JWT_EXPIRES_IN=7d
-
-SMS_ENABLED=false
-SMS_PROVIDER=infobip
-
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_SECURE=false
-EMAIL_USER=your-email@gmail.com
-EMAIL_PASSWORD=your-app-password
 
 Ghi chu:
 
@@ -155,6 +135,59 @@ Khuyen nghi doi mat khau admin ngay sau lan dang nhap dau.
 	- MongoDB Atlas password
 	- Email app password
 	- JWT secret
+
+## Huong dan Git va Push Code
+
+**QUAN TRONG:** Du an nay co nhieu remote repositories dang cau hinh. Neu khong chac, hay kiem tra truoc khi push!
+
+### Kiem tra remote hien tai
+
+```bash
+git remote -v
+```
+
+Ket qua se hien thi:
+```
+h1      https://github.com/Huyhunter1/bun-bo-co-do-hue.git (fetch/push)
+origin  https://github.com/leminhhuy1122/bun-bo-co-do-hue.git (fetch/push)
+v2      https://github.com/leminhhuy1122/bun-bo-co-do-hue-V2.git (fetch/push)
+```
+
+### Push code len GitHub chinh thuc (Huyhunter1)
+
+```bash
+git push h1 main
+```
+
+Hoac neu muon push len repository khac:
+
+```bash
+git push origin main      # Push len leminhhuy1122/bun-bo-co-do-hue
+git push v2 main          # Push len leminhhuy1122/bun-bo-co-do-hue-V2
+```
+
+### Kiem tra branch tracking
+
+```bash
+git branch -vv
+```
+
+- Neu thay `[v2/main]`: commit dang track remote v2, can push `git push h1 main`
+- Neu thay `[origin/main]`: commit dang track origin, nhung van can push `git push h1 main` neu muon ghi len Huyhunter1
+
+### Tong ket: Luon push len h1 (Huyhunter1)
+
+```bash
+# Commit code
+git add .
+git commit -m "feat: mo ta tinh nang"
+
+# Push len GitHub official (Huyhunter1)
+git push h1 main
+
+# Kiem tra xem da duoc push chua
+git log --oneline -5
+```
 
 ## Thong tin bo sung
 
