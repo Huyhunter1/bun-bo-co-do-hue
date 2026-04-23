@@ -771,6 +771,8 @@ function MenuTab({
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
+  const [uploading, setUploading] = useState(false);
+  const [imagePreview, setImagePreview] = useState<string>("");
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -802,6 +804,7 @@ function MenuTab({
 
   const handleAdd = () => {
     setEditingItem(null);
+    setImagePreview("");
     setFormData({
       name: "",
       description: "",
@@ -816,6 +819,7 @@ function MenuTab({
 
   const handleEdit = (item: MenuItem) => {
     setEditingItem(item);
+    setImagePreview(item.image || "");
     setFormData({
       name: item.name,
       description: item.description,
@@ -826,6 +830,45 @@ function MenuTab({
       available: item.available,
     });
     setShowAddModal(true);
+  };
+
+  const handleImageUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Kiểm tra kích thước file
+    if (file.size > 5 * 1024 * 1024) {
+      showToast("Kích thước file vượt quá 5MB", "error");
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const formDataToSend = new FormData();
+      formDataToSend.append("file", file);
+
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formDataToSend,
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setImagePreview(data.data.image);
+        setFormData({ ...formData, image: data.data.image });
+        showToast("Tải ảnh thành công!", "success");
+      } else {
+        showToast(data.error || "Lỗi khi tải ảnh", "error");
+      }
+    } catch (error) {
+      console.error("Error uploading image:", error);
+      showToast("Lỗi khi tải ảnh", "error");
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -851,6 +894,7 @@ function MenuTab({
           "success"
         );
         setShowAddModal(false);
+        setImagePreview("");
         fetchMenuItems();
       } else {
         showToast(data.error || "Có lỗi xảy ra", "error");
@@ -1119,7 +1163,10 @@ function MenuTab({
                   {editingItem ? "Sửa Món Ăn" : "Thêm Món Mới"}
                 </h2>
                 <button
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setImagePreview("");
+                  }}
                   className="text-gray-500 hover:text-gray-700"
                 >
                   <X size={24} />
@@ -1198,17 +1245,54 @@ function MenuTab({
 
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    URL hình ảnh
+                    Hình ảnh món *
                   </label>
-                  <input
-                    type="text"
-                    value={formData.image}
-                    onChange={(e) =>
-                      setFormData({ ...formData, image: e.target.value })
-                    }
-                    placeholder="https://..."
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-hue-red focus:border-transparent"
-                  />
+                  <div className="space-y-3">
+                    {/* Preview ảnh */}
+                    {imagePreview && (
+                      <div className="relative w-full h-48 rounded-lg overflow-hidden border-2 border-hue-red">
+                        <Image
+                          src={imagePreview}
+                          alt="Preview"
+                          fill
+                          className="object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setImagePreview("");
+                            setFormData({ ...formData, image: "" });
+                          }}
+                          className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-lg hover:bg-red-600"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Upload file */}
+                    <div>
+                      <label className="flex items-center justify-center w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-hue-red transition bg-gray-50">
+                        <div className="text-center">
+                          <Plus size={24} className="mx-auto text-gray-400 mb-1" />
+                          <p className="text-sm font-medium text-gray-600">
+                            {uploading ? "Đang tải..." : "Chọn hình ảnh từ máy"}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            JPG, PNG, WebP (tối đa 5MB)
+                          </p>
+                        </div>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/gif"
+                          onChange={handleImageUpload}
+                          disabled={uploading}
+                          className="hidden"
+                          required={!formData.image}
+                        />
+                      </label>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex gap-4">
@@ -1247,7 +1331,10 @@ function MenuTab({
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
-                    onClick={() => setShowAddModal(false)}
+                    onClick={() => {
+                      setShowAddModal(false);
+                      setImagePreview("");
+                    }}
                     className="flex-1 px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition font-semibold"
                   >
                     Hủy

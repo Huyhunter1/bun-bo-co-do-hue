@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb, getNextSequence } from "@/lib/mongodb";
 import { sendReservationConfirmationEmail } from "@/lib/email";
 
+export const dynamic = "force-dynamic";
+
 // Lấy danh sách đặt bàn
 export async function GET(request: NextRequest) {
   try {
