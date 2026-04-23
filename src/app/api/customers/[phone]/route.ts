@@ -102,3 +102,104 @@ export async function GET(
     );
   }
 }
+
+// Cập nhật thông tin khách hàng
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: { phone: string } }
+) {
+  try {
+    const db = await getDb();
+    const phone = params.phone;
+    const body = await request.json();
+    const { name, email, address } = body;
+
+    // Update in orders collection
+    if (name || email || address) {
+      const updateData: any = {};
+      if (name) updateData.customer_name = name;
+      if (email) updateData.customer_email = email;
+      if (address) updateData.delivery_address = address;
+
+      await db.collection("orders").updateMany(
+        { customer_phone: phone },
+        { $set: updateData }
+      );
+
+      // Update in reservations collection
+      await db.collection("reservations").updateMany(
+        { customer_phone: phone },
+        {
+          $set: {
+            customer_name: name || undefined,
+            customer_email: email || undefined,
+          },
+        }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "Cập nhật thông tin khách hàng thành công",
+    });
+  } catch (error: any) {
+    console.error("Customer PUT Error:", error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Không thể cập nhật thông tin khách hàng",
+        details: error.message,
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// Xóa khách hàng (xóa tất cả dữ liệu liên quan)
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { phone: string } }
+) {
+  try {
+    const db = await getDb();
+    const phone = params.phone;
+
+    // Get all orders and reservations for this customer
+    const orders = await db
+      .collection("orders")
+      .find({ customer_phone: phone })
+      .toArray();
+    
+    const orderIds = orders.map((o: any) => o.id);
+
+    // Delete order items
+    if (orderIds.length > 0) {
+      await db.collection("order_items").deleteMany({
+        order_id: { $in: orderIds },
+      });
+    }
+
+    // Delete orders
+    await db.collection("orders").deleteMany({ customer_phone: phone });
+
+    // Delete reservations
+    await db.collection("reservations").deleteMany({
+      customer_phone: phone,
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "Xóa khách hàng thành công",
+    });
+  } catch (error: any) {
+    console.error("Customer DELETE Error:", error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Không thể xóa khách hàng",
+        details: error.message,
+      },
+      { status: 500 }
+    );
+  }
+}

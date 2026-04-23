@@ -770,6 +770,7 @@ function MenuTab({
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
+  const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -880,6 +881,64 @@ function MenuTab({
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedItems.size === 0) {
+      showToast("Vui lòng chọn ít nhất một món ăn", "warning");
+      return;
+    }
+
+    if (
+      !confirm(`Bạn có chắc muốn xóa ${selectedItems.size} món ăn?`)
+    ) {
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/menu/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ids: Array.from(selectedItems),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        showToast(
+          `Xóa ${data.deletedCount} món ăn thành công`,
+          "success"
+        );
+        setSelectedItems(new Set());
+        fetchMenuItems();
+      } else {
+        showToast(data.error || "Không thể xóa", "error");
+      }
+    } catch (error) {
+      console.error("Error bulk deleting menu items:", error);
+      showToast("Lỗi khi xóa món ăn", "error");
+    }
+  };
+
+  const toggleItemSelection = (id: number) => {
+    const newSelected = new Set(selectedItems);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedItems(newSelected);
+  };
+
+  const toggleAllItems = () => {
+    if (selectedItems.size === filteredItems.length) {
+      setSelectedItems(new Set());
+    } else {
+      const allIds = new Set(filteredItems.map((item) => item.id));
+      setSelectedItems(allIds);
+    }
+  };
+
   const filteredItems = menuItems.filter((item) => {
     const matchesSearch = item.name
       .toLowerCase()
@@ -945,13 +1004,24 @@ function MenuTab({
             </option>
           </select>
         </div>
-        <button
-          onClick={handleAdd}
-          className="flex items-center justify-center gap-2 bg-hue-red text-white px-6 py-2 rounded-lg hover:bg-hue-redDark transition whitespace-nowrap"
-        >
-          <Plus size={20} />
-          Thêm Món Mới
-        </button>
+        <div className="flex gap-2">
+          {selectedItems.size > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              className="flex items-center justify-center gap-2 bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600 transition whitespace-nowrap"
+            >
+              <Trash size={20} />
+              Xóa ({selectedItems.size})
+            </button>
+          )}
+          <button
+            onClick={handleAdd}
+            className="flex items-center justify-center gap-2 bg-hue-red text-white px-6 py-2 rounded-lg hover:bg-hue-redDark transition whitespace-nowrap"
+          >
+            <Plus size={20} />
+            Thêm Món Mới
+          </button>
+        </div>
       </div>
 
       {/* Menu Items Grid */}
@@ -967,6 +1037,12 @@ function MenuTab({
                 alt={item.name}
                 fill
                 className="object-cover"
+              />
+              <input
+                type="checkbox"
+                checked={selectedItems.has(item.id)}
+                onChange={() => toggleItemSelection(item.id)}
+                className="absolute top-2 left-2 w-5 h-5 cursor-pointer z-10"
               />
               {item.popular && (
                 <span className="absolute top-2 right-2 bg-hue-gold text-white px-3 py-1 rounded-full text-xs font-bold">
@@ -3633,6 +3709,16 @@ function CustomersTab({
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [customerDetail, setCustomerDetail] = useState<any>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<any>(null);
+  const [editFormData, setEditFormData] = useState({
+    name: "",
+    email: "",
+    address: "",
+  });
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [customerToDelete, setCustomerToDelete] = useState<any>(null);
+  const [selectedCustomers, setSelectedCustomers] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchCustomers();
@@ -3678,6 +3764,134 @@ function CustomersTab({
     } catch (error) {
       console.error("Error fetching customer detail:", error);
       showToast("Lỗi khi tải chi tiết khách hàng", "error");
+    }
+  };
+
+  const handleEditClick = (customer: any) => {
+    setEditingCustomer(customer);
+    setEditFormData({
+      name: customer.name || "",
+      email: customer.email || "",
+      address: customer.address || "",
+    });
+    setShowEditModal(true);
+  };
+
+  const handleUpdateCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!editingCustomer) return;
+
+    try {
+      const response = await fetch(
+        `/api/customers/${editingCustomer.phone}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(editFormData),
+        }
+      );
+
+      const data = await response.json();
+
+      if (data.success) {
+        showToast("Cập nhật thông tin khách hàng thành công", "success");
+        setShowEditModal(false);
+        setEditingCustomer(null);
+        fetchCustomers();
+      } else {
+        showToast(data.error || "Không thể cập nhật", "error");
+      }
+    } catch (error) {
+      console.error("Error updating customer:", error);
+      showToast("Lỗi khi cập nhật khách hàng", "error");
+    }
+  };
+
+  const handleDeleteClick = (customer: any) => {
+    setCustomerToDelete(customer);
+    setShowDeleteModal(true);
+  };
+
+  const deleteCustomer = async () => {
+    if (!customerToDelete) return;
+
+    try {
+      const response = await fetch(
+        `/api/customers/${customerToDelete.phone}`,
+        { method: "DELETE" }
+      );
+
+      const data = await response.json();
+
+      if (data.success) {
+        showToast("Xóa khách hàng thành công", "success");
+        fetchCustomers();
+      } else {
+        showToast(data.error || "Không thể xóa", "error");
+      }
+    } catch (error) {
+      console.error("Error deleting customer:", error);
+      showToast("Lỗi khi xóa khách hàng", "error");
+    } finally {
+      setShowDeleteModal(false);
+      setCustomerToDelete(null);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedCustomers.size === 0) {
+      showToast("Vui lòng chọn ít nhất một khách hàng", "warning");
+      return;
+    }
+
+    if (!confirm(`Bạn có chắc muốn xóa ${selectedCustomers.size} khách hàng?`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/customers/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phones: Array.from(selectedCustomers),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        showToast(
+          `Xóa ${data.deleted.customers} khách hàng thành công`,
+          "success"
+        );
+        setSelectedCustomers(new Set());
+        fetchCustomers();
+      } else {
+        showToast(data.error || "Không thể xóa", "error");
+      }
+    } catch (error) {
+      console.error("Error bulk deleting customers:", error);
+      showToast("Lỗi khi xóa khách hàng", "error");
+    }
+  };
+
+  const toggleCustomerSelection = (phone: string) => {
+    const newSelected = new Set(selectedCustomers);
+    if (newSelected.has(phone)) {
+      newSelected.delete(phone);
+    } else {
+      newSelected.add(phone);
+    }
+    setSelectedCustomers(newSelected);
+  };
+
+  const toggleAllCustomers = () => {
+    if (selectedCustomers.size === customers.length) {
+      setSelectedCustomers(new Set());
+    } else {
+      const allPhones = new Set(customers.map((c) => c.phone));
+      setSelectedCustomers(allPhones);
     }
   };
 
@@ -3753,6 +3967,15 @@ function CustomersTab({
           <h2 className="text-2xl font-bold text-gray-800">
             Danh Sách Khách Hàng ({customers.length})
           </h2>
+          {selectedCustomers.size > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              className="flex items-center gap-2 bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition"
+            >
+              <Trash size={18} />
+              Xóa ({selectedCustomers.size})
+            </button>
+          )}
         </div>
 
         {/* Search & Filter */}
@@ -3798,6 +4021,14 @@ function CustomersTab({
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <input
+                      type="checkbox"
+                      checked={selectedCustomers.size === customers.length && customers.length > 0}
+                      onChange={toggleAllCustomers}
+                      className="rounded cursor-pointer"
+                    />
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Khách hàng
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -3828,6 +4059,14 @@ function CustomersTab({
                   const customerType = getCustomerType(customer);
                   return (
                     <tr key={index} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <input
+                          type="checkbox"
+                          checked={selectedCustomers.has(customer.phone)}
+                          onChange={() => toggleCustomerSelection(customer.phone)}
+                          className="rounded cursor-pointer"
+                        />
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
                           <div className="flex-shrink-0 h-10 w-10 bg-gradient-to-br from-hue-red to-hue-gold rounded-full flex items-center justify-center text-white font-bold">
@@ -3880,13 +4119,29 @@ function CustomersTab({
                           "vi-VN"
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm space-y-1">
                         <button
                           onClick={() => viewCustomerDetail(customer)}
-                          className="text-blue-600 hover:text-blue-800 font-medium"
+                          className="block text-blue-600 hover:text-blue-800 font-medium"
                         >
                           Xem chi tiết
                         </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleEditClick(customer)}
+                            className="text-green-600 hover:text-green-800 transition text-xs"
+                            title="Sửa"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteClick(customer)}
+                            className="text-red-600 hover:text-red-800 transition text-xs"
+                            title="Xóa"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -4390,6 +4645,102 @@ function CustomersTab({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Edit Customer Modal */}
+      {showEditModal && editingCustomer && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-800">
+                Sửa Thông Tin Khách Hàng
+              </h3>
+            </div>
+
+            <form onSubmit={handleUpdateCustomer} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Tên khách hàng
+                </label>
+                <input
+                  type="text"
+                  value={editFormData.name}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, name: e.target.value })
+                  }
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-hue-red focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={editFormData.email}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, email: e.target.value })
+                  }
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-hue-red focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Địa chỉ
+                </label>
+                <input
+                  type="text"
+                  value={editFormData.address}
+                  onChange={(e) =>
+                    setEditFormData({
+                      ...editFormData,
+                      address: e.target.value,
+                    })
+                  }
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-hue-red focus:border-transparent"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditingCustomer(null);
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-hue-red text-white rounded-lg hover:bg-hue-redDark transition"
+                >
+                  Lưu
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Customer Modal */}
+      {showDeleteModal && customerToDelete && (
+        <ConfirmModal
+          isOpen={showDeleteModal}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setCustomerToDelete(null);
+          }}
+          onConfirm={deleteCustomer}
+          title="Xác nhận xóa khách hàng"
+          message={`Bạn có chắc muốn xóa khách hàng ${customerToDelete.name}? Tất cả đơn hàng và đặt bàn sẽ bị xóa.`}
+          confirmText="Xóa"
+          cancelText="Hủy"
+          type="danger"
+        />
       )}
     </div>
   );
