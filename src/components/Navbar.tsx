@@ -45,7 +45,7 @@ export default function Navbar() {
       }`}
     >
       {/* Christmas decorative border - subtle */}
-      <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-500 via-yellow-400 via-green-500 to-red-500 opacity-50"></div>
+      <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-500 via-orange-400 via-green-500 to-red-500 opacity-50"></div>
 
       {/* Top bar - Hidden on mobile for cleaner look */}
       <div className="bg-black bg-opacity-60 py-2 text-sm border-b border-orange-500/20 hidden md:block">

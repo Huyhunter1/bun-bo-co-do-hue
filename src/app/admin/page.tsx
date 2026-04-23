@@ -3006,6 +3006,9 @@ function CouponsTab({
     id: number;
     code: string;
   } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
   const [formData, setFormData] = useState({
     code: "",
     description: "",
@@ -3100,14 +3103,17 @@ function CouponsTab({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitting(true);
 
     if (!formData.code.trim()) {
       showToast("Vui lòng nhập mã giảm giá", "warning");
+      setSubmitting(false);
       return;
     }
 
     if (formData.discount_value <= 0) {
       showToast("Giá trị giảm phải lớn hơn 0", "warning");
+      setSubmitting(false);
       return;
     }
 
@@ -3159,6 +3165,8 @@ function CouponsTab({
     } catch (error) {
       console.error("Error saving coupon:", error);
       showToast("Lỗi khi lưu mã giảm giá", "error");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -3169,6 +3177,7 @@ function CouponsTab({
 
   const handleDelete = async () => {
     if (!couponToDelete) return;
+    setDeleting(true);
 
     try {
       const response = await fetch(`/api/coupons/${couponToDelete.id}`, {
@@ -3188,12 +3197,14 @@ function CouponsTab({
       console.error("Error deleting coupon:", error);
       showToast("Lỗi khi xóa mã giảm giá", "error");
     } finally {
+      setDeleting(false);
       setShowDeleteModal(false);
       setCouponToDelete(null);
     }
   };
 
   const toggleActive = async (coupon: any) => {
+    setTogglingId(coupon.id);
     try {
       const response = await fetch(`/api/coupons/${coupon.id}`, {
         method: "PUT",
@@ -3223,6 +3234,8 @@ function CouponsTab({
     } catch (error) {
       console.error("Error toggling coupon:", error);
       showToast("Lỗi khi cập nhật trạng thái", "error");
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -3259,7 +3272,8 @@ function CouponsTab({
           </h2>
           <button
             onClick={handleAdd}
-            className="flex items-center gap-2 bg-hue-red text-white px-6 py-3 rounded-lg hover:bg-hue-redDark transition font-semibold"
+            disabled={submitting}
+            className="flex items-center gap-2 bg-hue-red text-white px-6 py-3 rounded-lg hover:bg-hue-redDark transition font-semibold disabled:bg-hue-redDark/50 disabled:cursor-not-allowed"
           >
             <Plus size={20} />
             Thêm Mã Mới
@@ -3307,9 +3321,10 @@ function CouponsTab({
                         type="checkbox"
                         checked={coupon.is_active}
                         onChange={() => toggleActive(coupon)}
-                        className="sr-only peer"
+                        disabled={togglingId === coupon.id}
+                        className="sr-only peer disabled:opacity-50 disabled:cursor-not-allowed"
                       />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                      <div className={`w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600 ${togglingId === coupon.id ? 'opacity-50' : ''}`}></div>
                     </label>
                   </div>
                 </div>
@@ -3377,17 +3392,23 @@ function CouponsTab({
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleEdit(coupon)}
-                      className="flex-1 flex items-center justify-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition"
+                      disabled={submitting || deleting}
+                      className="flex-1 flex items-center justify-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition disabled:bg-blue-300 disabled:cursor-not-allowed"
                     >
                       <Edit2 size={16} />
                       Sửa
                     </button>
                     <button
                       onClick={() => handleDeleteClick(coupon)}
-                      className="flex-1 flex items-center justify-center gap-2 bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition"
+                      disabled={deleting}
+                      className="flex-1 flex items-center justify-center gap-2 bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition disabled:bg-red-300 disabled:cursor-not-allowed"
                     >
-                      <Trash2 size={16} />
-                      Xóa
+                      {deleting ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      ) : (
+                        <Trash2 size={16} />
+                      )}
+                      {deleting ? "..." : "Xóa"}
                     </button>
                   </div>
 
@@ -3808,15 +3829,24 @@ function CouponsTab({
                   <button
                     type="button"
                     onClick={() => setShowAddModal(false)}
-                    className="flex-1 px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition font-semibold"
+                    disabled={submitting}
+                    className="flex-1 px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition font-semibold disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400"
                   >
                     Hủy
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 px-6 py-3 bg-hue-red text-white rounded-lg hover:bg-hue-redDark transition font-semibold"
+                    disabled={submitting}
+                    className="flex-1 px-6 py-3 bg-hue-red text-white rounded-lg hover:bg-hue-redDark transition font-semibold disabled:bg-hue-redDark/50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
-                    {editingCoupon ? "Cập Nhật" : "Thêm Mới"}
+                    {submitting ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                        Đang lưu...
+                      </>
+                    ) : (
+                      editingCoupon ? "Cập Nhật" : "Thêm Mới"
+                    )}
                   </button>
                 </div>
               </form>
