@@ -773,6 +773,9 @@ function MenuTab({
   const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
   const [uploading, setUploading] = useState(false);
   const [imagePreview, setImagePreview] = useState<string>("");
+  const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState<number | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -873,6 +876,7 @@ function MenuTab({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitting(true);
 
     try {
       const url = editingItem ? `/api/menu/${editingItem.id}` : "/api/menu";
@@ -901,12 +905,15 @@ function MenuTab({
       }
     } catch (error) {
       showToast("Lỗi khi lưu món ăn", "error");
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const handleDelete = async (id: number) => {
     if (!confirm("Bạn có chắc chắn muốn xóa món này?")) return;
 
+    setDeleting(id);
     try {
       const response = await fetch(`/api/menu/${id}`, {
         method: "DELETE",
@@ -922,6 +929,8 @@ function MenuTab({
       }
     } catch (error) {
       showToast("Lỗi khi xóa món ăn", "error");
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -937,6 +946,7 @@ function MenuTab({
       return;
     }
 
+    setBulkDeleting(true);
     try {
       const response = await fetch("/api/menu/bulk-delete", {
         method: "POST",
@@ -961,6 +971,8 @@ function MenuTab({
     } catch (error) {
       console.error("Error bulk deleting menu items:", error);
       showToast("Lỗi khi xóa món ăn", "error");
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -1052,15 +1064,26 @@ function MenuTab({
           {selectedItems.size > 0 && (
             <button
               onClick={handleBulkDelete}
-              className="flex items-center justify-center gap-2 bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600 transition whitespace-nowrap"
+              disabled={bulkDeleting}
+              className="flex items-center justify-center gap-2 bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600 transition whitespace-nowrap disabled:bg-red-300 disabled:cursor-not-allowed"
             >
-              <Trash size={20} />
-              Xóa ({selectedItems.size})
+              {bulkDeleting ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                  Đang xóa...
+                </>
+              ) : (
+                <>
+                  <Trash size={20} />
+                  Xóa ({selectedItems.size})
+                </>
+              )}
             </button>
           )}
           <button
             onClick={handleAdd}
-            className="flex items-center justify-center gap-2 bg-hue-red text-white px-6 py-2 rounded-lg hover:bg-hue-redDark transition whitespace-nowrap"
+            disabled={submitting}
+            className="flex items-center justify-center gap-2 bg-hue-red text-white px-6 py-2 rounded-lg hover:bg-hue-redDark transition whitespace-nowrap disabled:bg-hue-redDark/50 disabled:cursor-not-allowed"
           >
             <Plus size={20} />
             Thêm Món Mới
@@ -1094,7 +1117,15 @@ function MenuTab({
                 </span>
               )}
             </div>
-            <div className="p-4">
+            <div className="p-4 relative">
+              {deleting === item.id && (
+                <div className="absolute inset-0 bg-black bg-opacity-50 rounded-lg flex items-center justify-center z-10">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-2 border-white border-t-transparent mx-auto mb-2"></div>
+                    <p className="text-white text-sm font-semibold">Đang xóa...</p>
+                  </div>
+                </div>
+              )}
               <h3 className="font-bold text-lg text-gray-800 mb-2">
                 {item.name}
               </h3>
@@ -1128,17 +1159,23 @@ function MenuTab({
               <div className="flex gap-2">
                 <button
                   onClick={() => handleEdit(item)}
-                  className="flex-1 flex items-center justify-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition"
+                  disabled={deleting !== null || submitting}
+                  className="flex-1 flex items-center justify-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition disabled:bg-blue-300 disabled:cursor-not-allowed"
                 >
                   <Edit2 size={16} />
                   Sửa
                 </button>
                 <button
                   onClick={() => handleDelete(item.id)}
-                  className="flex-1 flex items-center justify-center gap-2 bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition"
+                  disabled={deleting !== null || submitting}
+                  className="flex-1 flex items-center justify-center gap-2 bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition disabled:bg-red-300 disabled:cursor-not-allowed"
                 >
-                  <Trash2 size={16} />
-                  Xóa
+                  {deleting === item.id ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                  ) : (
+                    <Trash2 size={16} />
+                  )}
+                  {deleting === item.id ? "..." : "Xóa"}
                 </button>
               </div>
             </div>
@@ -1335,15 +1372,24 @@ function MenuTab({
                       setShowAddModal(false);
                       setImagePreview("");
                     }}
-                    className="flex-1 px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition font-semibold"
+                    disabled={submitting || uploading}
+                    className="flex-1 px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition font-semibold disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400"
                   >
                     Hủy
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 px-6 py-3 bg-hue-red text-white rounded-lg hover:bg-hue-redDark transition font-semibold"
+                    disabled={submitting || uploading}
+                    className="flex-1 px-6 py-3 bg-hue-red text-white rounded-lg hover:bg-hue-redDark transition font-semibold disabled:bg-hue-redDark/50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
-                    {editingItem ? "Cập Nhật" : "Thêm Món"}
+                    {submitting ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                        Đang lưu...
+                      </>
+                    ) : (
+                      editingItem ? "Cập Nhật" : "Thêm Món"
+                    )}
                   </button>
                 </div>
               </form>
