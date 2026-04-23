@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: "10mb", // Giới hạn 10MB
-    },
-  },
-};
+export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
