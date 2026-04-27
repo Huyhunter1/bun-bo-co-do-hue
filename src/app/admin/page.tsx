@@ -5578,6 +5578,9 @@ function StaffTab({
     id: number;
     username: string;
   } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [formData, setFormData] = useState({
     username: "",
     password: "",
@@ -5615,9 +5618,11 @@ function StaffTab({
 
   const handleAddStaff = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitting(true);
 
     if (!formData.username || !formData.password) {
       showToast("Vui lòng điền đầy đủ thông tin", "warning");
+      setSubmitting(false);
       return;
     }
 
@@ -5641,6 +5646,8 @@ function StaffTab({
     } catch (error) {
       console.error("Error adding staff:", error);
       showToast("Lỗi khi thêm nhân viên", "error");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -5662,8 +5669,12 @@ function StaffTab({
 
   const handleUpdateStaff = async (e: React.FormEvent) => {
     e.preventDefault();
+    setUpdating(true);
 
-    if (!editingStaff) return;
+    if (!editingStaff) {
+      setUpdating(false);
+      return;
+    }
 
     try {
       const response = await fetch(`/api/staff/${editingStaff.id}`, {
@@ -5685,11 +5696,14 @@ function StaffTab({
     } catch (error) {
       console.error("Error updating staff:", error);
       showToast("Lỗi khi cập nhật nhân viên", "error");
+    } finally {
+      setUpdating(false);
     }
   };
 
   const deleteStaff = async () => {
     if (!staffToDelete) return;
+    setDeleting(true);
 
     try {
       const response = await fetch(`/api/staff/${staffToDelete.id}`, {
@@ -5708,6 +5722,7 @@ function StaffTab({
       console.error("Error deleting staff:", error);
       showToast("Lỗi khi xóa nhân viên", "error");
     } finally {
+      setDeleting(false);
       setShowDeleteModal(false);
       setStaffToDelete(null);
     }
@@ -5740,7 +5755,8 @@ function StaffTab({
         <h2 className="text-2xl font-bold text-gray-800">Quản Lý Nhân Viên</h2>
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 bg-hue-red text-white px-4 py-2 rounded-lg hover:bg-hue-redDark transition"
+          disabled={submitting || updating || deleting}
+          className="flex items-center gap-2 bg-hue-red text-white px-4 py-2 rounded-lg hover:bg-hue-redDark transition disabled:bg-hue-redDark/50 disabled:cursor-not-allowed"
         >
           <Plus size={20} />
           Thêm Nhân Viên
@@ -5794,17 +5810,23 @@ function StaffTab({
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleEditClick(member)}
-                          className="text-blue-600 hover:text-blue-800 transition"
+                          disabled={updating || deleting}
+                          className="text-blue-600 hover:text-blue-800 transition disabled:text-blue-300 disabled:cursor-not-allowed"
                           title="Sửa nhân viên"
                         >
                           <Edit2 size={18} />
                         </button>
                         <button
                           onClick={() => handleDeleteClick(member)}
-                          className="text-red-600 hover:text-red-800 transition"
+                          disabled={deleting}
+                          className="text-red-600 hover:text-red-800 transition disabled:text-red-300 disabled:cursor-not-allowed"
                           title="Xóa nhân viên"
                         >
-                          <Trash2 size={18} />
+                          {deleting ? (
+                            <div className="animate-spin rounded-full h-[18px] w-[18px] border-2 border-red-600 border-t-transparent"></div>
+                          ) : (
+                            <Trash2 size={18} />
+                          )}
                         </button>
                       </div>
                     )}
@@ -5887,15 +5909,24 @@ function StaffTab({
                     setShowAddModal(false);
                     setFormData({ username: "", password: "", role: "staff" });
                   }}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-hue-red text-white rounded-lg hover:bg-hue-redDark transition"
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2 bg-hue-red text-white rounded-lg hover:bg-hue-redDark transition disabled:bg-hue-redDark/50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  Thêm
+                  {submitting ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      Đang lưu...
+                    </>
+                  ) : (
+                    "Thêm"
+                  )}
                 </button>
               </div>
             </form>
