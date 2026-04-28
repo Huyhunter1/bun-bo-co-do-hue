@@ -31,4 +31,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 EXPOSE 8080
 
-CMD ["npm", "start"]
+CMD ["sh", "-c", "PORT=8080 npm start"]
