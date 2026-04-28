@@ -1,6 +1,7 @@
 // src/app/api/auth/login/route.ts - API đăng nhập
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/mongodb";
+import { logger } from "@/lib/logger";
 import bcrypt from "bcryptjs";
 import jwt, { type SignOptions } from "jsonwebtoken";
 
@@ -19,7 +20,10 @@ export async function POST(request: NextRequest) {
 
   const { username, password } = body;
 
+  logger.info('Login attempt', { username, timestamp: new Date().toISOString() });
+
   if (!username || !password) {
+    logger.warn('Login failed: missing credentials', { username });
     return NextResponse.json(
       { success: false, error: "Thiếu thông tin đăng nhập" },
       { status: 400 }
@@ -56,6 +60,11 @@ export async function POST(request: NextRequest) {
       role: user.role,
     });
 
+    logger.info('Login successful (database auth)', { 
+      username: user.username,
+      role: user.role 
+    });
+
     // Trả về thông tin user (không bao gồm password)
     const { password: _, ...userWithoutPassword } = user;
 
@@ -68,7 +77,11 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error: any) {
-    console.error("Login Error:", error);
+    logger.error("Login Error", { 
+      username, 
+      error: error.message,
+      stack: error.stack 
+    });
     
     // Try fallback authentication
     try {
@@ -90,6 +103,8 @@ export async function POST(request: NextRequest) {
           username: fallbackUser.username,
           role: fallbackUser.role,
         });
+
+        logger.info('Login successful (fallback mode)', { username: adminUsername });
 
         return NextResponse.json(
           {
