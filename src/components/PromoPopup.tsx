@@ -30,7 +30,9 @@ export default function PromoPopup() {
     // Fetch coupons from API
     const fetchCoupons = async () => {
       try {
-        const response = await fetch("/api/coupons/popup");
+        const response = await fetch("/api/coupons/popup", {
+          cache: "no-store",
+        });
         const data = await response.json();
         if (data.success) {
           setCoupons(data.data);

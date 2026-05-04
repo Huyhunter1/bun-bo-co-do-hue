@@ -36,7 +36,9 @@ export default function CouponInput({
     // Fetch suggested coupons from API
     const fetchSuggestions = async () => {
       try {
-        const response = await fetch("/api/coupons/suggestions");
+        const response = await fetch("/api/coupons/suggestions", {
+          cache: "no-store",
+        });
         const data = await response.json();
         if (data.success) {
           setSuggestedCoupons(data.data);
@@ -71,7 +73,7 @@ export default function CouponInput({
 
   return (
     <div className="mb-6">
-      <label className="block text-sm font-semibold mb-3 flex items-center gap-2">
+      <label className="text-sm font-semibold mb-3 flex items-center gap-2">
         <Tag size={18} className="text-hue-red" />
         <span>Mã Giảm Giá</span>
       </label>
