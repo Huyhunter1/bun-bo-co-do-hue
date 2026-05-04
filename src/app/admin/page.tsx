@@ -4912,6 +4912,7 @@ function CustomersTab({
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [toast, setToast] = useState<{
     message: string;
     type: "success" | "error" | "warning" | "info";
@@ -4941,6 +4942,7 @@ export default function AdminPage() {
     }
 
     try {
+      setIsLoggingIn(true);
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -4965,6 +4967,8 @@ export default function AdminPage() {
     } catch (error) {
       console.error("Login error:", error);
       showToast("Lỗi kết nối đến server", "error");
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -4998,10 +5002,11 @@ export default function AdminPage() {
                 <input
                   type="text"
                   value={loginForm.username}
+                  disabled={isLoggingIn}
                   onChange={(e) =>
                     setLoginForm({ ...loginForm, username: e.target.value })
                   }
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-hue-red focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-hue-red focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
                   placeholder="admin"
                 />
               </div>
@@ -5013,19 +5018,24 @@ export default function AdminPage() {
                 <input
                   type="password"
                   value={loginForm.password}
+                  disabled={isLoggingIn}
                   onChange={(e) =>
                     setLoginForm({ ...loginForm, password: e.target.value })
                   }
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-hue-red focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-hue-red focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
                   placeholder="Admin@12345"
                 />
               </div>
 
               <button
                 type="submit"
-                className="w-full bg-hue-red text-white py-3 rounded-lg font-bold hover:bg-hue-redDark transition"
+                  disabled={isLoggingIn}
+                  className="w-full bg-hue-red text-white py-3 rounded-lg font-bold hover:bg-hue-redDark transition disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Đăng Nhập
+                  {isLoggingIn && (
+                    <span className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  )}
+                  {isLoggingIn ? "Đang đăng nhập..." : "Đăng Nhập"}
               </button>
             </form>
           </div>
