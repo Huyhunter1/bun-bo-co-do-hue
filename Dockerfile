@@ -20,6 +20,9 @@ ENV PORT=8080
 COPY package*.json ./
 RUN npm ci --only=production
 
+# Ensure TLS certificate chain is available for MongoDB Atlas connections
+RUN apk add --no-cache ca-certificates && update-ca-certificates
+
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.js ./next.config.js
