@@ -1,0 +1,43 @@
+steps:
+  # Build Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: 
+      - 'build'
+      - '-t'
+      - 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/bun-bo-hue/cloudrun:$SHORT_SHA'
+      - '-t'
+      - 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/bun-bo-hue/cloudrun:latest'
+      - '.'
+
+  # Push to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/bun-bo-hue/cloudrun:$SHORT_SHA'
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/cloud-builders/gke-deploy'
+    args:
+      - run
+      - '--filename=.'
+      - '--image=asia-southeast1-docker.pkg.dev/$PROJECT_ID/bun-bo-hue/cloudrun:$SHORT_SHA'
+      - '--location=asia-southeast1'
+
+# Alternative: Use gcloud to deploy directly to Cloud Run
+onFailure:
+  - name: 'gcr.io/cloud-builders/gke-deploy'
+    args:
+      - run
+      - '--filename=.'
+      - '--image=asia-southeast1-docker.pkg.dev/$PROJECT_ID/bun-bo-hue/cloudrun:latest'
+      - '--location=asia-southeast1'
+
+images:
+  - 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/bun-bo-hue/cloudrun:$SHORT_SHA'
+  - 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/bun-bo-hue/cloudrun:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'N1_HIGHCPU_8'
+
+timeout: '3600s'
