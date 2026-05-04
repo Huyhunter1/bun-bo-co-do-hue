@@ -1,11 +1,21 @@
 import { Db, MongoClient } from "mongodb";
+import dns from "dns";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
 const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "bun_bo_hue_co_do";
+const MONGODB_DNS_SERVERS = (process.env.MONGODB_DNS_SERVERS || "8.8.8.8,1.1.1.1")
+  .split(",")
+  .map((server) => server.trim())
+  .filter(Boolean);
 const IS_DEVELOPMENT = process.env.NODE_ENV === "development";
 
 if (!MONGODB_URI) {
   throw new Error("Missing MONGODB_URI environment variable");
+}
+
+// Set DNS servers for MongoDB Atlas SRV resolution
+if (MONGODB_URI.startsWith("mongodb+srv://") && MONGODB_DNS_SERVERS.length > 0) {
+  dns.setServers(MONGODB_DNS_SERVERS);
 }
 
 declare global {
